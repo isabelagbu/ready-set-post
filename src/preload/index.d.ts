@@ -1,0 +1,20 @@
+import { ElectronAPI } from '@electron-toolkit/preload'
+
+export type StorePayload = { posts: unknown[] }
+
+export type AppAPI = {
+  readStore: () => Promise<StorePayload>
+  writeStore: (data: StorePayload) => Promise<void>
+  copyText: (text: string) => Promise<boolean>
+  readNotes: () => Promise<string>
+  writeNotes: (text: string) => Promise<void>
+}
+
+declare global {
+  interface Window {
+    electron: ElectronAPI
+    api: AppAPI
+  }
+}
+
+export {}

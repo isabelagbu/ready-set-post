@@ -8,6 +8,7 @@ export type AppAPI = {
   copyText: (text: string) => Promise<boolean>
   readNotes: () => Promise<string>
   writeNotes: (text: string) => Promise<void>
+  setTheme: (source: 'light' | 'dark' | 'system') => Promise<void>
 }
 
 declare global {

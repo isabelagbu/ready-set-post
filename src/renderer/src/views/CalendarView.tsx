@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import PostNotesFullView from '../components/PostNotesFullView'
+import PostCreateModal from '../components/PostCreateModal'
+import { pad2 } from '../posts/datetime'
 import {
-  PLATFORM_OPTIONS,
+  livePostUrl,
+  postHasContentNotes,
+  newPostId,
+  EMPTY_CONTENT_NOTES,
   type Post,
-  type Status,
-  newPostId
+  type PostContentNotes
 } from '../posts/types'
-
-function pad2(n: number): string {
-  return String(n).padStart(2, '0')
-}
 
 function dateKey(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
@@ -77,26 +78,6 @@ function groupPostsByLocalDate(posts: Post[]): Map<string, Post[]> {
   return map
 }
 
-function combineLocalDateAndTime(dateKeyStr: string, timeHHMM: string): string | null {
-  const [ys, ms, ds] = dateKeyStr.split('-')
-  if (!ys || !ms || !ds) return null
-  const y = Number(ys)
-  const mo = Number(ms)
-  const d = Number(ds)
-  const [hs, mins] = timeHHMM.split(':')
-  const h = Number(hs ?? 0)
-  const mi = Number(mins ?? 0)
-  if ([y, mo, d, h, mi].some((n) => Number.isNaN(n))) return null
-  const dt = new Date(y, mo - 1, d, h, mi, 0, 0)
-  return Number.isNaN(dt.getTime()) ? null : dt.toISOString()
-}
-
-function toDatetimeLocalValue(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
-}
-
 export default function CalendarView({
   posts,
   setPosts
@@ -106,12 +87,21 @@ export default function CalendarView({
 }): React.ReactElement {
   const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()))
   const [selectedKey, setSelectedKey] = useState<string | null>(() => dateKey(startOfToday()))
+  const [notesModalPostId, setNotesModalPostId] = useState<string | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
 
   const grid = useMemo(() => buildMonthGrid(viewMonth), [viewMonth])
   const byDay = useMemo(() => groupPostsByLocalDate(posts), [posts])
 
   const monthLabel = viewMonth.toLocaleString('default', { month: 'long', year: 'numeric' })
   const todayKey = dateKey(startOfToday())
+
+  const notesModalPost =
+    notesModalPostId !== null ? posts.find((p) => p.id === notesModalPostId) : undefined
+
+  function setNotesForPost(id: string, contentNotes: PostContentNotes): void {
+    setPosts((prev) => prev.map((p) => (p.id === id ? { ...p, contentNotes } : p)))
+  }
 
   function prevMonth(): void {
     setViewMonth((v) => new Date(v.getFullYear(), v.getMonth() - 1, 1))
@@ -127,11 +117,40 @@ export default function CalendarView({
     setSelectedKey(dateKey(t))
   }
 
+  function handleCreate(payload: {
+    title: string
+    body: string
+    platforms: string[]
+    status: 'draft' | 'scheduled'
+    scheduledAt: string | null
+  }): void {
+    const newPost: Post = {
+      id: newPostId(),
+      title: payload.title,
+      body: payload.body,
+      platforms: payload.platforms,
+      status: payload.status,
+      scheduledAt: payload.scheduledAt,
+      postedUrl: null,
+      contentNotes: { ...EMPTY_CONTENT_NOTES }
+    }
+    setPosts((prev) => [...prev, newPost])
+    setShowCreate(false)
+  }
+
+  // Build initial ISO date from the selected calendar day (noon)
+  const createInitialDate = useMemo(() => {
+    if (!selectedKey) return undefined
+    const [y, m, d] = selectedKey.split('-').map(Number)
+    if (!y || !m || !d) return undefined
+    return new Date(y, m - 1, d, 12, 0).toISOString()
+  }, [selectedKey])
+
   return (
     <div className="page calendar-page">
       <header className="page-header">
         <h1>Calendar</h1>
-        <p className="sub">Pick a day to see what is scheduled or add a new time slot.</p>
+        <p className="sub">Select a day to view or create scheduled posts.</p>
       </header>
 
       <div className="calendar-layout">
@@ -182,43 +201,49 @@ export default function CalendarView({
 
         <aside className="calendar-panel card">
           {selectedKey ? (
-            <DayPanel
+            <DayPanelPosts
               dateKey={selectedKey}
               posts={byDay.get(selectedKey) ?? []}
-              setPosts={setPosts}
+              onOpenNotes={(postId) => setNotesModalPostId(postId)}
+              onCreatePost={() => setShowCreate(true)}
             />
           ) : (
             <p className="muted small">Select a day on the calendar.</p>
           )}
         </aside>
       </div>
+
+      {notesModalPost && (
+        <PostNotesFullView
+          post={notesModalPost}
+          onClose={() => setNotesModalPostId(null)}
+          onNotesChange={(next) => setNotesForPost(notesModalPost.id, next)}
+        />
+      )}
+
+      {showCreate && (
+        <PostCreateModal
+          initialDraft={false}
+          initialDate={createInitialDate}
+          onClose={() => setShowCreate(false)}
+          onCreate={handleCreate}
+        />
+      )}
     </div>
   )
 }
 
-function DayPanel({
+function DayPanelPosts({
   dateKey,
   posts,
-  setPosts
+  onOpenNotes,
+  onCreatePost
 }: {
   dateKey: string
   posts: Post[]
-  setPosts: React.Dispatch<React.SetStateAction<Post[]>>
+  onOpenNotes: (postId: string) => void
+  onCreatePost: () => void
 }): React.ReactElement {
-  const [body, setBody] = useState('')
-  const [time, setTime] = useState('09:00')
-  const [platforms, setPlatforms] = useState<string[]>([])
-  const [asDraft, setAsDraft] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-
-  useEffect(() => {
-    setBody('')
-    setTime('09:00')
-    setPlatforms([])
-    setAsDraft(false)
-    setEditingId(null)
-  }, [dateKey])
-
   const label = useMemo(() => {
     const [y, m, d] = dateKey.split('-').map(Number)
     if (!y || !m || !d) return dateKey
@@ -230,272 +255,103 @@ function DayPanel({
     })
   }, [dateKey])
 
-  function togglePlatform(p: string): void {
-    setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
-  }
-
-  function addScheduled(): void {
-    const text = body.trim()
-    if (!text) return
-    if (asDraft) {
-      const post: Post = {
-        id: newPostId(),
-        body: text,
-        platforms: [...platforms],
-        status: 'draft',
-        scheduledAt: null,
-        createdAt: new Date().toISOString()
-      }
-      setPosts((prev) => [post, ...prev])
-      setBody('')
-      setPlatforms([])
-      setTime('09:00')
-      setAsDraft(false)
-      return
-    }
-    const iso = combineLocalDateAndTime(dateKey, time)
-    if (!iso) return
-    const post: Post = {
-      id: newPostId(),
-      body: text,
-      platforms: [...platforms],
-      status: 'scheduled',
-      scheduledAt: iso,
-      createdAt: new Date().toISOString()
-    }
-    setPosts((prev) => [post, ...prev])
-    setBody('')
-    setPlatforms([])
-    setTime('09:00')
-  }
-
-  function updatePost(id: string, patch: Partial<Post>): void {
-    setPosts((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
-  }
-
-  function removePost(id: string): void {
-    setPosts((prev) => prev.filter((p) => p.id !== id))
-    setEditingId((e) => (e === id ? null : e))
-  }
-
   return (
     <div className="day-panel">
-      <h2 className="day-panel-title">{label}</h2>
+      <div className="day-panel-header">
+        <h2 className="day-panel-title">{label}</h2>
+        <button type="button" className="primary day-panel-create-btn" onClick={onCreatePost}>
+          + New post
+        </button>
+      </div>
 
-      <section className="day-panel-section">
-        <h3 className="day-panel-heading">Scheduled</h3>
+      <section className="day-panel-section day-panel-events" aria-labelledby="day-scheduled-heading">
+        <h3 id="day-scheduled-heading" className="day-panel-heading">
+          Scheduled
+        </h3>
         {posts.length === 0 ? (
           <p className="muted small">Nothing on this day yet.</p>
         ) : (
           <ul className="day-post-list">
             {posts.map((p) => (
-              <li key={p.id} className="day-post">
-                {editingId === p.id ? (
-                  <DayPostEditor
-                    post={p}
-                    onSave={(patch) => {
-                      updatePost(p.id, patch)
-                      setEditingId(null)
-                    }}
-                    onCancel={() => setEditingId(null)}
-                  />
-                ) : (
-                  <>
-                    <div className="day-post-meta">
-                      <span className="day-post-time">
-                        {p.scheduledAt
-                          ? new Date(p.scheduledAt).toLocaleTimeString('default', {
-                              hour: 'numeric',
-                              minute: '2-digit'
-                            })
-                          : '—'}
+              <li key={p.id} className="card post day-calendar-post">
+                <div className="post-top">
+                  <div className="post-top-meta">
+                    <span className={`badge status-${p.status}`}>{p.status}</span>
+                    {p.scheduledAt && (
+                      <span className="muted small">
+                        {new Date(p.scheduledAt).toLocaleString('en-US', {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        })}
                       </span>
-                      <span className={`day-post-status status-${p.status}`}>{p.status}</span>
-                    </div>
-                    <p className="day-post-body">{p.body}</p>
-                    {p.platforms.length > 0 && (
-                      <div className="pills">
-                        {p.platforms.map((x) => (
-                          <span key={x} className="pill">
-                            {x}
-                          </span>
-                        ))}
-                      </div>
                     )}
-                    <div className="row actions">
-                      <button type="button" className="ghost" onClick={() => setEditingId(p.id)}>
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="ghost"
-                        onClick={() =>
-                          updatePost(p.id, {
-                            status: 'draft',
-                            scheduledAt: null
-                          })
-                        }
-                      >
-                        Unschedule
-                      </button>
-                      <button type="button" className="danger ghost" onClick={() => removePost(p.id)}>
-                        Delete
-                      </button>
+                    {postHasContentNotes(p) && (
+                      <span className="badge post-notes-indicator" title="Has production notes">
+                        Notes
+                      </span>
+                    )}
+                  </div>
+                  {p.platforms.length > 0 && (
+                    <div className="post-top-pills pills" aria-label="Platforms">
+                      {p.platforms.map((x) => (
+                        <span key={x} className="pill">
+                          {x}
+                        </span>
+                      ))}
                     </div>
-                  </>
+                  )}
+                </div>
+
+                <div
+                  className="post-body-hit"
+                  role="button"
+                  tabIndex={0}
+                  aria-haspopup="dialog"
+                  aria-label="Open full-screen script and production notes"
+                  onClick={() => onOpenNotes(p.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onOpenNotes(p.id)
+                    }
+                  }}
+                >
+                  <p className="day-post-title">{p.title}</p>
+                  <p className="body">{p.body}</p>
+                  <span className="muted small post-body-hit-hint">Click for full-screen notes</span>
+                </div>
+
+                {p.status === 'posted' && (
+                  <p className="post-live-link-row">
+                    <a
+                      href={livePostUrl(p)!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="post-live-link"
+                      title={
+                        !p.postedUrl?.trim()
+                          ? 'Placeholder — set a real URL in Content'
+                          : undefined
+                      }
+                    >
+                      View live post
+                    </a>
+                  </p>
+                )}
+
+                {p.platforms.length === 0 && (
+                  <p className="muted small post-no-platforms">No platform tags</p>
                 )}
               </li>
             ))}
           </ul>
         )}
       </section>
-
-      <section className="day-panel-section">
-        <h3 className="day-panel-heading">Schedule new</h3>
-        <textarea
-          placeholder="Post text…"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-        />
-        <label className="day-time-row">
-          <span className="label">Time</span>
-          <input
-            type="time"
-            value={time}
-            disabled={asDraft}
-            onChange={(e) => setTime(e.target.value)}
-          />
-        </label>
-        <div className="row platforms">
-          <label className="chip chip-draft">
-            <input
-              type="checkbox"
-              checked={asDraft}
-              onChange={(e) => setAsDraft(e.target.checked)}
-            />
-            Draft
-          </label>
-          {PLATFORM_OPTIONS.map((p) => (
-            <label key={p} className="chip">
-              <input
-                type="checkbox"
-                checked={platforms.includes(p)}
-                onChange={() => togglePlatform(p)}
-              />
-              {p}
-            </label>
-          ))}
-        </div>
-        <button type="button" className="primary" onClick={addScheduled}>
-          {asDraft ? 'Add draft' : 'Add to this day'}
-        </button>
-      </section>
-    </div>
-  )
-}
-
-function DayPostEditor({
-  post,
-  onSave,
-  onCancel
-}: {
-  post: Post
-  onSave: (patch: Partial<Post>) => void
-  onCancel: () => void
-}): React.ReactElement {
-  const [body, setBody] = useState(post.body)
-  const [platforms, setPlatforms] = useState<string[]>(post.platforms)
-  const [dtLocal, setDtLocal] = useState(() =>
-    post.scheduledAt ? toDatetimeLocalValue(post.scheduledAt) : ''
-  )
-  const [status, setStatus] = useState<Status>(post.status)
-  const [isDraft, setIsDraft] = useState(post.status === 'draft' && !post.scheduledAt)
-
-  function togglePlatform(p: string): void {
-    setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
-  }
-
-  function save(): void {
-    if (isDraft) {
-      onSave({
-        body: body.trim() || post.body,
-        platforms,
-        scheduledAt: null,
-        status: 'draft'
-      })
-      return
-    }
-    const scheduledAt = dtLocal.trim() ? new Date(dtLocal).toISOString() : null
-    let nextStatus = status
-    if (scheduledAt && nextStatus === 'draft') nextStatus = 'scheduled'
-    if (!scheduledAt && nextStatus === 'scheduled') nextStatus = 'draft'
-    onSave({
-      body: body.trim() || post.body,
-      platforms,
-      scheduledAt,
-      status: nextStatus
-    })
-  }
-
-  return (
-    <div className="day-post-editor">
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} />
-      <label className="grow">
-        <span className="label">Date & time</span>
-        <input
-          type="datetime-local"
-          value={dtLocal}
-          disabled={isDraft}
-          onChange={(e) => setDtLocal(e.target.value)}
-        />
-      </label>
-      <div className="row platforms">
-        <label className="chip chip-draft">
-          <input
-            type="checkbox"
-            checked={isDraft}
-            onChange={(e) => {
-              const on = e.target.checked
-              setIsDraft(on)
-              if (on) {
-                setDtLocal('')
-                setStatus('draft')
-              }
-            }}
-          />
-          Draft
-        </label>
-        {PLATFORM_OPTIONS.map((p) => (
-          <label key={p} className="chip">
-            <input
-              type="checkbox"
-              checked={platforms.includes(p)}
-              onChange={() => togglePlatform(p)}
-            />
-            {p}
-          </label>
-        ))}
-      </div>
-      <label>
-        <span className="label">Status</span>
-        <select
-          value={status}
-          disabled={isDraft}
-          onChange={(e) => setStatus(e.target.value as Status)}
-        >
-          <option value="draft">draft</option>
-          <option value="scheduled">scheduled</option>
-          <option value="posted">posted</option>
-        </select>
-      </label>
-      <div className="row actions">
-        <button type="button" className="primary" onClick={save}>
-          Save
-        </button>
-        <button type="button" className="ghost" onClick={onCancel}>
-          Cancel
-        </button>
-      </div>
     </div>
   )
 }

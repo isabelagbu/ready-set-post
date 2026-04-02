@@ -72,6 +72,9 @@ export default function DashboardView({
           <button type="button" className="primary" onClick={() => onNavigate('calendar')}>
             Calendar
           </button>
+          <button type="button" onClick={() => onNavigate('content')}>
+            Content
+          </button>
           <button type="button" onClick={() => onNavigate('notes')}>
             Notepad
           </button>

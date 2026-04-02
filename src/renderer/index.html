@@ -3,9 +3,36 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#fff8fa" />
     <title>Social</title>
+    <script>
+      ;(function () {
+        var root = document.documentElement
+        var accents = {
+          rose: 1,
+          ocean: 1,
+          forest: 1,
+          violet: 1,
+          amber: 1,
+          slate: 1
+        }
+        try {
+          var t = localStorage.getItem('smm-theme')
+          if (t === 'light' || t === 'dark' || t === 'system') {
+            root.setAttribute('data-theme', t)
+          } else {
+            root.setAttribute('data-theme', 'light')
+          }
+          var a = localStorage.getItem('smm-accent')
+          if (a && accents[a]) root.setAttribute('data-accent', a)
+          else root.setAttribute('data-accent', 'rose')
+        } catch (e) {
+          root.setAttribute('data-theme', 'light')
+          root.setAttribute('data-accent', 'rose')
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

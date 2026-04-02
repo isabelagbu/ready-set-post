@@ -1,1 +1,7 @@
-export type NavId = 'dashboard' | 'calendar' | 'notes' | 'accounts' | 'settings'
+export type NavId =
+  | 'dashboard'
+  | 'calendar'
+  | 'content'
+  | 'notes'
+  | 'accounts'
+  | 'settings'

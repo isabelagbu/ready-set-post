@@ -7,7 +7,9 @@ const api = {
     ipcRenderer.invoke('store:write', data),
   copyText: (text: string): Promise<boolean> => ipcRenderer.invoke('clipboard:write', text),
   readNotes: (): Promise<string> => ipcRenderer.invoke('notes:read'),
-  writeNotes: (text: string): Promise<void> => ipcRenderer.invoke('notes:write', text)
+  writeNotes: (text: string): Promise<void> => ipcRenderer.invoke('notes:write', text),
+  setTheme: (source: 'light' | 'dark' | 'system'): Promise<void> =>
+    ipcRenderer.invoke('theme:set', source)
 }
 
 contextBridge.exposeInMainWorld('electron', electronAPI)

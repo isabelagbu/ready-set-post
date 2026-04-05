@@ -1,4 +1,6 @@
 import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, shell } from 'electron'
+
+app.name = 'Ready Set Post!'
 import { join } from 'path'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
@@ -83,6 +85,7 @@ function createWindow(): void {
     height: 820,
     minWidth: 800,
     minHeight: 560,
+    title: 'Ready Set Post!',
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#fff8fa',

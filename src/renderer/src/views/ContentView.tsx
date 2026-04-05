@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
+import { playTriplePop } from '../utils/sound'
+import ConfirmDialog from '../components/ConfirmDialog'
 import PostEditorForm from '../components/PostEditorForm'
 import PostNotesFullView from '../components/PostNotesFullView'
 import PostCreateModal from '../components/PostCreateModal'
+import PostPills from '../components/PostPills'
+import { useAccounts } from '../accounts/context'
+import { ACCOUNT_PLATFORM_LABELS, PLATFORM_META, type Account } from '../accounts/types'
 import {
   livePostUrl,
+  newPostId,
   PLATFORM_OPTIONS,
   EMPTY_CONTENT_NOTES,
   type Post,
   type PostContentNotes,
   type Status
 } from '../posts/types'
-import { newPostId } from '../posts/types'
 
 const FILTER_NONE = '__none__'
 
@@ -41,16 +46,28 @@ function matchesSection(post: Post, section: ContentSection): boolean {
   return post.status === 'scheduled' || post.status === 'posted'
 }
 
-function matchesFilters(post: Post, selected: Set<string>): boolean {
+function matchesFilters(post: Post, selected: Set<string>, accounts: Account[]): boolean {
   if (selected.size === 0) return true
   const wantsNone = selected.has(FILTER_NONE)
-  const platformKeys = [...selected].filter((k) => k !== FILTER_NONE)
-  const matchesNone = wantsNone && post.platforms.length === 0
-  const matchesPlatform =
-    platformKeys.length > 0 && post.platforms.some((p) => selected.has(p))
-  if (wantsNone && platformKeys.length === 0) return matchesNone
-  if (!wantsNone && platformKeys.length > 0) return matchesPlatform
-  return matchesNone || matchesPlatform
+  const keys = [...selected].filter((k) => k !== FILTER_NONE)
+
+  const matchesNone = wantsNone && post.platforms.length === 0 && post.accountIds.length === 0
+
+  const matchesKey = keys.some((k) => {
+    // Account ID key — post must have that account selected
+    if (post.accountIds.includes(k)) return true
+    // Platform name key — match by platform name OR by account whose platform matches
+    if (post.platforms.includes(k)) return true
+    const platformKey = ACCOUNT_PLATFORM_LABELS[k]
+    if (platformKey) {
+      return post.accountIds.some((id) => accounts.find((a) => a.id === id)?.platform === platformKey)
+    }
+    return false
+  })
+
+  if (wantsNone && keys.length === 0) return matchesNone
+  if (!wantsNone) return matchesKey
+  return matchesNone || matchesKey
 }
 
 function matchesStatusFilter(post: Post, selected: Set<Status>): boolean {
@@ -88,6 +105,7 @@ export default function ContentView({
   posts: Post[]
   setPosts: React.Dispatch<React.SetStateAction<Post[]>>
 }): React.ReactElement {
+  const { accounts } = useAccounts()
   const [section, setSection] = useState<ContentSection>(() => readStoredSection())
   const [filterSelected, setFilterSelected] = useState<Set<string>>(() => new Set())
   const [statusFilterSelected, setStatusFilterSelected] = useState<Set<Status>>(() => new Set())
@@ -96,6 +114,7 @@ export default function ContentView({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [notesModalPostId, setNotesModalPostId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const postsInSection = useMemo(
     () => posts.filter((p) => matchesSection(p, section)),
@@ -107,7 +126,7 @@ export default function ContentView({
     const list = posts.filter(
       (p) =>
         matchesSection(p, section) &&
-        matchesFilters(p, filterSelected) &&
+        matchesFilters(p, filterSelected, accounts) &&
         (section === 'drafts' ? true : matchesStatusFilter(p, statusFilterSelected)) &&
         matchesSearch(p, q)
     )
@@ -116,7 +135,7 @@ export default function ContentView({
       (a, b) =>
         mul * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     )
-  }, [posts, section, filterSelected, statusFilterSelected, search, sortOrder])
+  }, [posts, section, filterSelected, statusFilterSelected, search, sortOrder, accounts])
 
   useEffect(() => {
     persistSection(section)
@@ -162,6 +181,7 @@ export default function ContentView({
     setPosts((prev) => prev.filter((p) => p.id !== id))
     setEditingId((e) => (e === id ? null : e))
     setNotesModalPostId((n) => (n === id ? null : n))
+    setConfirmDeleteId(null)
   }
 
   function setNotesForPost(id: string, contentNotes: PostContentNotes): void {
@@ -171,9 +191,24 @@ export default function ContentView({
   const notesModalPost =
     notesModalPostId !== null ? posts.find((p) => p.id === notesModalPostId) : undefined
 
-  const filterRows: { key: string; label: string }[] = [
-    { key: FILTER_NONE, label: 'No platform' },
-    ...PLATFORM_OPTIONS.map((p) => ({ key: p, label: p }))
+  type FilterRow =
+    | { kind: 'platform'; key: string; label: string }
+    | { kind: 'account'; key: string; label: string; color: string }
+
+  const filterRows: FilterRow[] = [
+    ...PLATFORM_OPTIONS.flatMap((p): FilterRow[] => {
+      const platformKey = ACCOUNT_PLATFORM_LABELS[p]
+      const platformAccounts = platformKey ? accounts.filter((a) => a.platform === platformKey) : []
+      return [
+        { kind: 'platform', key: p, label: p },
+        ...platformAccounts.map((acc): FilterRow => ({
+          kind: 'account',
+          key: acc.id,
+          label: acc.name,
+          color: PLATFORM_META[platformKey!].color
+        }))
+      ]
+    })
   ]
 
   function openCreate(): void {
@@ -186,6 +221,7 @@ export default function ContentView({
     title: string
     body: string
     platforms: string[]
+    accountIds: string[]
     status: Extract<Status, 'draft' | 'scheduled'>
     scheduledAt: string | null
   }): void {
@@ -195,6 +231,7 @@ export default function ContentView({
       title: payload.title,
       body: payload.body,
       platforms: payload.platforms,
+      accountIds: payload.accountIds,
       status: payload.status,
       scheduledAt: payload.status === 'draft' ? null : payload.scheduledAt,
       postedUrl: null,
@@ -243,19 +280,26 @@ export default function ContentView({
 
       <div className="content-filter-layout" id="content-panel-main" role="tabpanel">
         <aside className="content-filter-panel card" aria-label="Content filters">
-          <h2 className="filter-panel-title">Platforms</h2>
+          <h2 className="filter-panel-title">Platforms &amp; accounts</h2>
           <button type="button" className="ghost filter-clear" onClick={clearFilters}>
-            Clear platform & status
+            Clear all filters
           </button>
           <ul className="filter-list">
             {filterRows.map((row) => (
               <li key={row.key}>
-                <label className="filter-row">
+                <label className={`filter-row${row.kind === 'account' ? ' filter-row--account' : ''}`}>
                   <input
                     type="checkbox"
                     checked={filterSelected.has(row.key)}
                     onChange={() => toggleFilter(row.key)}
                   />
+                  {row.kind === 'account' && (
+                    <span
+                      className="filter-account-dot"
+                      style={{ background: row.color }}
+                      aria-hidden
+                    />
+                  )}
                   <span>{row.label}</span>
                 </label>
               </li>
@@ -346,17 +390,21 @@ export default function ContentView({
                     <span className={`badge status-${post.status}`}>{post.status}</span>
                     {post.scheduledAt && (
                       <span className="muted small">
-                        {new Date(post.scheduledAt).toLocaleString()}
+                        {new Date(post.scheduledAt).toLocaleString('en-US', {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        })}
                       </span>
                     )}
                   </div>
-                  {post.platforms.length > 0 && (
-                    <div className="post-top-pills pills" aria-label="Platforms">
-                      {post.platforms.map((p) => (
-                        <span key={p} className="pill">
-                          {p}
-                        </span>
-                      ))}
+                  {(post.platforms.length > 0 || post.accountIds.length > 0) && (
+                    <div className="post-top-pills" aria-label="Platforms">
+                      <PostPills post={post} />
                     </div>
                   )}
                 </div>
@@ -408,7 +456,7 @@ export default function ContentView({
                         </a>
                       </p>
                     )}
-                    {post.platforms.length === 0 && (
+                    {post.platforms.length === 0 && post.accountIds.length === 0 && (
                       <p className="muted small post-no-platforms">No platform tags</p>
                     )}
                     <div
@@ -429,28 +477,16 @@ export default function ContentView({
                         <button
                           type="button"
                           className="ghost"
-                          onClick={() =>
+                          data-silent
+                          onClick={() => {
+                            playTriplePop()
                             updatePost(post.id, { status: 'posted', postedUrl: null })
-                          }
+                          }}
                         >
                           Mark posted
                         </button>
                       )}
-                      {post.status !== 'posted' && (
-                        <button
-                          type="button"
-                          className="ghost"
-                          onClick={() =>
-                            updatePost(post.id, {
-                              status: 'scheduled',
-                              scheduledAt: new Date().toISOString()
-                            })
-                          }
-                        >
-                          Stamp time
-                        </button>
-                      )}
-                      <button type="button" className="danger ghost" onClick={() => removePost(post.id)}>
+                      <button type="button" className="danger ghost" onClick={() => setConfirmDeleteId(post.id)}>
                         Delete
                       </button>
                     </div>
@@ -460,7 +496,36 @@ export default function ContentView({
             ))}
           </ul>
           {filtered.length === 0 && (
-            <p className="empty muted">No posts match your search or filters.</p>
+            postsInSection.length === 0 ? (
+              <div className="content-empty-state">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" width="44" height="44" aria-hidden>
+                  {section === 'drafts' ? (
+                    <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                  ) : (
+                    <>
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 7v5l3 3" />
+                    </>
+                  )}
+                </svg>
+                <p className="content-empty-heading">
+                  {section === 'drafts' ? 'No drafts yet' : 'Nothing here yet'}
+                </p>
+                <p className="muted small content-empty-sub">
+                  {section === 'drafts'
+                    ? 'Start writing — hit the + button to create your first draft.'
+                    : 'Create a post and schedule it, or mark one as posted to see it here.'}
+                </p>
+              </div>
+            ) : (
+              <div className="content-empty-state content-empty-state--filtered">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" width="36" height="36" aria-hidden>
+                  <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+                </svg>
+                <p className="content-empty-heading">No posts match</p>
+                <p className="muted small content-empty-sub">Try adjusting your search or clearing the filters.</p>
+              </div>
+            )
           )}
         </div>
       </div>
@@ -470,6 +535,8 @@ export default function ContentView({
           post={notesModalPost}
           onClose={() => setNotesModalPostId(null)}
           onNotesChange={(next) => setNotesForPost(notesModalPost.id, next)}
+          onPostChange={(patch) => updatePost(notesModalPost.id, patch)}
+          onDelete={() => removePost(notesModalPost.id)}
         />
       )}
 
@@ -480,6 +547,19 @@ export default function ContentView({
           onCreate={createPost}
         />
       )}
+
+      {confirmDeleteId && (() => {
+        const post = posts.find((p) => p.id === confirmDeleteId)
+        return (
+          <ConfirmDialog
+            title="Delete post?"
+            message={post ? `"${post.title || 'Untitled'}" will be permanently deleted.` : 'This post will be permanently deleted.'}
+            confirmLabel="Delete"
+            onConfirm={() => removePost(confirmDeleteId)}
+            onCancel={() => setConfirmDeleteId(null)}
+          />
+        )
+      })()}
     </div>
   )
 }

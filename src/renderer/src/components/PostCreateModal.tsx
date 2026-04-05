@@ -16,6 +16,7 @@ export default function PostCreateModal({
     title: string
     body: string
     platforms: string[]
+    accountIds: string[]
     status: Extract<Status, 'draft' | 'scheduled'>
     scheduledAt: string | null
   }) => void

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from 'react'
+import { playPop } from './utils/sound'
 import type { NavId } from './nav'
 import { parsePost, type Post } from './posts/types'
 import {
@@ -15,7 +16,6 @@ import ContentView from './views/ContentView'
 import DashboardView from './views/DashboardView'
 import NotesView from './views/NotesView'
 import AccountsView from './views/AccountsView'
-import PlaceholderView from './views/PlaceholderView'
 import SettingsView from './views/SettingsView'
 
 function Icon({ d, d2 }: { d: string; d2?: string }): React.ReactElement {
@@ -61,29 +61,6 @@ const NAV: { id: NavId; label: string; icon: React.ReactElement }[] = [
 ]
 
 const SIDEBAR_STORAGE_KEY = 'smm-sidebar-collapsed'
-const ACCOUNT_URLS_KEY = 'smm-account-urls'
-
-export type AccountUrls = { tiktok: string; instagram: string; youtube: string }
-const DEFAULT_ACCOUNT_URLS: AccountUrls = {
-  tiktok: 'https://www.tiktok.com',
-  instagram: 'https://www.instagram.com',
-  youtube: 'https://www.youtube.com'
-}
-
-function readAccountUrls(): AccountUrls {
-  try {
-    const raw = localStorage.getItem(ACCOUNT_URLS_KEY)
-    if (!raw) return { ...DEFAULT_ACCOUNT_URLS }
-    const p = JSON.parse(raw) as Partial<AccountUrls>
-    return {
-      tiktok: p.tiktok || DEFAULT_ACCOUNT_URLS.tiktok,
-      instagram: p.instagram || DEFAULT_ACCOUNT_URLS.instagram,
-      youtube: p.youtube || DEFAULT_ACCOUNT_URLS.youtube
-    }
-  } catch {
-    return { ...DEFAULT_ACCOUNT_URLS }
-  }
-}
 
 export default function App(): React.ReactElement {
   const [active, setActive] = useState<NavId>('dashboard')
@@ -98,15 +75,6 @@ export default function App(): React.ReactElement {
   })
   const [theme, setTheme] = useState<AppTheme>(() => readStoredTheme())
   const [accent, setAccent] = useState<AccentPresetId>(() => readStoredAccent())
-  const [accountUrls, setAccountUrls] = useState<AccountUrls>(() => readAccountUrls())
-
-  function updateAccountUrl(platform: keyof AccountUrls, url: string): void {
-    setAccountUrls((prev) => {
-      const next = { ...prev, [platform]: url }
-      try { localStorage.setItem(ACCOUNT_URLS_KEY, JSON.stringify(next)) } catch { /* ignore */ }
-      return next
-    })
-  }
 
   function toggleSidebar(): void {
     setSidebarCollapsed((c) => {
@@ -159,7 +127,7 @@ export default function App(): React.ReactElement {
         <div className="sidebar-top">
           <div className="sidebar-brand">
             <span className="brand-mark" aria-hidden />
-            <span className="brand-name">Social</span>
+            <span className="brand-name">Ready Set Post!</span>
           </div>
           <button
             type="button"
@@ -183,7 +151,7 @@ export default function App(): React.ReactElement {
               key={item.id}
               type="button"
               className={`nav-item${active === item.id ? ' active' : ''}`}
-              onClick={() => setActive(item.id)}
+              onClick={() => { playPop(); setActive(item.id) }}
               aria-label={sidebarCollapsed ? item.label : undefined}
               title={item.label}
             >
@@ -201,15 +169,13 @@ export default function App(): React.ReactElement {
         {active === 'calendar' && <CalendarView posts={posts} setPosts={setPosts} />}
         {active === 'content' && <ContentView posts={posts} setPosts={setPosts} />}
         {active === 'notes' && <NotesView />}
-        {active === 'accounts' && <AccountsView urls={accountUrls} />}
+        {active === 'accounts' && <AccountsView />}
         {active === 'settings' && (
           <SettingsView
             theme={theme}
             accent={accent}
             onThemeChange={setTheme}
             onAccentChange={setAccent}
-            accountUrls={accountUrls}
-            onAccountUrlChange={updateAccountUrl}
           />
         )}
       </main>

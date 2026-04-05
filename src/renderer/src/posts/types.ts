@@ -38,6 +38,8 @@ export type Post = {
   title: string
   body: string
   platforms: string[]
+  /** IDs of specific accounts this post is targeted to (TikTok/Instagram/YouTube). */
+  accountIds: string[]
   status: Status
   scheduledAt: string | null
   /** Canonical link to the live post or video when status is posted. */
@@ -58,13 +60,11 @@ export function postHasContentNotes(post: Post): boolean {
 }
 
 export const PLATFORM_OPTIONS = [
-  'X',
-  'LinkedIn',
   'Instagram',
-  'Threads',
-  'Bluesky',
   'TikTok',
-  'YouTube'
+  'YouTube',
+  'X',
+  'LinkedIn'
 ] as const
 
 export function parsePost(raw: unknown): Post | null {
@@ -72,6 +72,7 @@ export function parsePost(raw: unknown): Post | null {
   const o = raw as Record<string, unknown>
   if (typeof o.id !== 'string' || typeof o.body !== 'string') return null
   const platforms = Array.isArray(o.platforms) ? o.platforms.filter((p): p is string => typeof p === 'string') : []
+  const accountIds = Array.isArray(o.accountIds) ? o.accountIds.filter((a): a is string => typeof a === 'string') : []
   const status = o.status === 'draft' || o.status === 'scheduled' || o.status === 'posted' ? o.status : 'draft'
   const scheduledAt = o.scheduledAt === null || typeof o.scheduledAt === 'string' ? o.scheduledAt : null
   const postedUrl =
@@ -92,6 +93,7 @@ export function parsePost(raw: unknown): Post | null {
     title: derivedTitle.length > 0 ? derivedTitle : 'Untitled',
     body: o.body,
     platforms,
+    accountIds,
     status,
     scheduledAt,
     postedUrl,

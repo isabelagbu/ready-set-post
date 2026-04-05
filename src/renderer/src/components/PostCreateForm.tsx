@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { PLATFORM_OPTIONS, type Status } from '../posts/types'
+import { useAccounts } from '../accounts/context'
+import { ACCOUNT_PLATFORM_LABELS, PLATFORM_META } from '../accounts/types'
 import { toDatetimeLocalValue } from '../posts/datetime'
+import { PLATFORM_OPTIONS, type Status } from '../posts/types'
 import DateTimePicker from './DateTimePicker'
 
 export default function PostCreateForm({
@@ -19,16 +21,20 @@ export default function PostCreateForm({
     title: string
     body: string
     platforms: string[]
+    accountIds: string[]
     status: Extract<Status, 'draft' | 'scheduled'>
     scheduledAt: string | null
   }) => void
   showTitle?: boolean
   plain?: boolean
 }): React.ReactElement {
+  const { accounts } = useAccounts()
+
   const [title, setTitle] = useState('')
   const [titleTouched, setTitleTouched] = useState(false)
   const [body, setBody] = useState('')
-  const [platforms, setPlatforms] = useState<string[]>([])
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([])
   const [isDraft, setIsDraft] = useState(initialDraft)
   const [dtLocal, setDtLocal] = useState(() =>
     toDatetimeLocalValue(initialDate ?? new Date().toISOString())
@@ -37,16 +43,39 @@ export default function PostCreateForm({
   const titleError = titleTouched && !title.trim()
 
   function togglePlatform(p: string): void {
-    setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
+    setSelectedPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
+  }
+
+  function toggleAccount(id: string): void {
+    setSelectedAccountIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
   }
 
   function save(): void {
     setTitleTouched(true)
     const trimmedTitle = title.trim()
     if (!trimmedTitle) return
+
+    // Derive platforms from selected account IDs
+    const accountDerivedPlatforms = [
+      ...new Set(
+        selectedAccountIds
+          .map((id) => accounts.find((a) => a.id === id)?.platform)
+          .filter(Boolean)
+          .map((p) => PLATFORM_META[p!].label)
+      )
+    ]
+    const allPlatforms = [...new Set([...selectedPlatforms, ...accountDerivedPlatforms])]
+
     const text = body.trim()
     if (isDraft) {
-      onCreate({ title: trimmedTitle, body: text, platforms, status: 'draft', scheduledAt: null })
+      onCreate({
+        title: trimmedTitle,
+        body: text,
+        platforms: allPlatforms,
+        accountIds: selectedAccountIds,
+        status: 'draft',
+        scheduledAt: null
+      })
       return
     }
     const dt = dtLocal.trim()
@@ -54,7 +83,8 @@ export default function PostCreateForm({
     onCreate({
       title: trimmedTitle,
       body: text,
-      platforms,
+      platforms: allPlatforms,
+      accountIds: selectedAccountIds,
       status: 'scheduled',
       scheduledAt: new Date(dt).toISOString()
     })
@@ -95,7 +125,10 @@ export default function PostCreateForm({
           placeholder="e.g. TikTok caption ideas"
           value={title}
           className={titleError ? 'input-error' : ''}
-          onChange={(e) => { setTitle(e.target.value); setTitleTouched(true) }}
+          onChange={(e) => {
+            setTitle(e.target.value)
+            setTitleTouched(true)
+          }}
           onBlur={() => setTitleTouched(true)}
         />
         {titleError && <span className="pcf-error-msg">Title is required</span>}
@@ -114,17 +147,56 @@ export default function PostCreateForm({
         </label>
       )}
 
-      <div className="row platforms">
-        {PLATFORM_OPTIONS.map((p) => (
-          <label key={p} className="chip">
-            <input
-              type="checkbox"
-              checked={platforms.includes(p)}
-              onChange={() => togglePlatform(p)}
-            />
-            {p}
-          </label>
-        ))}
+      {/* Platform / account picker — one row per platform */}
+      <div className="platform-picker-stack">
+        <span className="label">
+          Platforms
+          {accounts.length === 0 && (
+            <span className="platform-picker-hint muted">
+              — add accounts in Settings to select specific profiles
+            </span>
+          )}
+        </span>
+        {PLATFORM_OPTIONS.map((p) => {
+          const platformKey = ACCOUNT_PLATFORM_LABELS[p]
+          const grpAccounts = platformKey ? accounts.filter((a) => a.platform === platformKey) : []
+          const meta = platformKey ? PLATFORM_META[platformKey] : null
+
+          return (
+            <div key={p} className="platform-picker-row">
+              <span
+                className="platform-picker-row-label"
+                style={meta ? { color: meta.color } : undefined}
+              >
+                {p}
+              </span>
+              {grpAccounts.length > 0 ? (
+                <div className="platform-picker-row-accounts">
+                  {grpAccounts.map((acc) => (
+                    <label key={acc.id} className="chip chip--account">
+                      <input
+                        type="checkbox"
+                        checked={selectedAccountIds.includes(acc.id)}
+                        onChange={() => toggleAccount(acc.id)}
+                      />
+                      <span className="chip-account-dot" style={{ background: meta!.color }} aria-hidden />
+                      {acc.name}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <label className="chip">
+                  <input
+                    type="checkbox"
+                    checked={selectedPlatforms.includes(p)}
+                    onChange={() => togglePlatform(p)}
+                  />
+                  Select
+                </label>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       <div className="row actions">
@@ -138,4 +210,3 @@ export default function PostCreateForm({
     </div>
   )
 }
-

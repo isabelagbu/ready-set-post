@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import PostNotesFullView from '../components/PostNotesFullView'
 import PostCreateModal from '../components/PostCreateModal'
+import PostPills from '../components/PostPills'
 import { pad2 } from '../posts/datetime'
 import {
   livePostUrl,
@@ -121,6 +122,7 @@ export default function CalendarView({
     title: string
     body: string
     platforms: string[]
+    accountIds: string[]
     status: 'draft' | 'scheduled'
     scheduledAt: string | null
   }): void {
@@ -129,10 +131,12 @@ export default function CalendarView({
       title: payload.title,
       body: payload.body,
       platforms: payload.platforms,
+      accountIds: payload.accountIds,
       status: payload.status,
       scheduledAt: payload.scheduledAt,
       postedUrl: null,
-      contentNotes: { ...EMPTY_CONTENT_NOTES }
+      contentNotes: { ...EMPTY_CONTENT_NOTES },
+      createdAt: new Date().toISOString()
     }
     setPosts((prev) => [...prev, newPost])
     setShowCreate(false)
@@ -218,6 +222,8 @@ export default function CalendarView({
           post={notesModalPost}
           onClose={() => setNotesModalPostId(null)}
           onNotesChange={(next) => setNotesForPost(notesModalPost.id, next)}
+          onPostChange={(patch) => setPosts((prev) => prev.map((p) => p.id === notesModalPost.id ? { ...p, ...patch } : p))}
+          onDelete={() => { setPosts((prev) => prev.filter((p) => p.id !== notesModalPost.id)); setNotesModalPostId(null) }}
         />
       )}
 
@@ -296,13 +302,9 @@ function DayPanelPosts({
                       </span>
                     )}
                   </div>
-                  {p.platforms.length > 0 && (
-                    <div className="post-top-pills pills" aria-label="Platforms">
-                      {p.platforms.map((x) => (
-                        <span key={x} className="pill">
-                          {x}
-                        </span>
-                      ))}
+                  {(p.platforms.length > 0 || p.accountIds.length > 0) && (
+                    <div className="post-top-pills" aria-label="Platforms">
+                      <PostPills post={p} />
                     </div>
                   )}
                 </div>
@@ -344,7 +346,7 @@ function DayPanelPosts({
                   </p>
                 )}
 
-                {p.platforms.length === 0 && (
+                {p.platforms.length === 0 && p.accountIds.length === 0 && (
                   <p className="muted small post-no-platforms">No platform tags</p>
                 )}
               </li>

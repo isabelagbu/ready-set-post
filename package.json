@@ -1,7 +1,8 @@
 {
-  "name": "social-media-manager",
+  "name": "ready-set-post",
+  "productName": "Ready Set Post!",
   "version": "1.0.0",
-  "description": "Minimal desktop social content queue",
+  "description": "Ready Set Post — desktop social content manager",
   "main": "./out/main/index.js",
   "private": true,
   "scripts": {

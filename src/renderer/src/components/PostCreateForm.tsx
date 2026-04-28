@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useAccounts } from '../accounts/context'
 import { ACCOUNT_PLATFORM_LABELS, PLATFORM_META } from '../accounts/types'
-import { toDatetimeLocalValue } from '../posts/datetime'
-import { PLATFORM_OPTIONS, type Status } from '../posts/types'
-import DateTimePicker from './DateTimePicker'
+import { scheduledAtFromParts, toDateInputValue, toTimeInputValue } from '../posts/datetime'
+import { type Status } from '../posts/types'
+import { useEnabledPlatformFormLabels } from '../hooks/useEnabledPlatformFormLabels'
+import ScheduleDateTimeFields from './ScheduleDateTimeFields'
+import PlatformLogoImg from './PlatformLogoImg'
 
 export default function PostCreateForm({
   initialDraft,
@@ -22,25 +24,34 @@ export default function PostCreateForm({
     body: string
     platforms: string[]
     accountIds: string[]
-    status: Extract<Status, 'draft' | 'scheduled'>
+    status: Status
     scheduledAt: string | null
+    postedUrl: string | null
   }) => void
   showTitle?: boolean
   plain?: boolean
 }): React.ReactElement {
   const { accounts } = useAccounts()
+  const formPlatformLabels = useEnabledPlatformFormLabels()
 
   const [title, setTitle] = useState('')
   const [titleTouched, setTitleTouched] = useState(false)
   const [body, setBody] = useState('')
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([])
-  const [isDraft, setIsDraft] = useState(initialDraft)
-  const [dtLocal, setDtLocal] = useState(() =>
-    toDatetimeLocalValue(initialDate ?? new Date().toISOString())
+  const [mode, setMode] = useState<'draft' | 'schedule' | 'posted'>(() => (initialDraft ? 'draft' : 'schedule'))
+  const [dateStr, setDateStr] = useState(() =>
+    toDateInputValue(initialDate ?? new Date().toISOString())
   )
+  const [timeStr, setTimeStr] = useState(() =>
+    toTimeInputValue(initialDate ?? new Date().toISOString())
+  )
+  const [noTime, setNoTime] = useState(false)
+  const [scheduleDateTouched, setScheduleDateTouched] = useState(false)
+  const [postedUrlDraft, setPostedUrlDraft] = useState('')
 
   const titleError = titleTouched && !title.trim()
+  const scheduleDateError = scheduleDateTouched && mode === 'schedule' && !dateStr.trim()
 
   function togglePlatform(p: string): void {
     setSelectedPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
@@ -52,6 +63,7 @@ export default function PostCreateForm({
 
   function save(): void {
     setTitleTouched(true)
+    if (mode === 'schedule') setScheduleDateTouched(true)
     const trimmedTitle = title.trim()
     if (!trimmedTitle) return
 
@@ -67,26 +79,42 @@ export default function PostCreateForm({
     const allPlatforms = [...new Set([...selectedPlatforms, ...accountDerivedPlatforms])]
 
     const text = body.trim()
-    if (isDraft) {
+    if (mode === 'draft') {
       onCreate({
         title: trimmedTitle,
         body: text,
         platforms: allPlatforms,
         accountIds: selectedAccountIds,
         status: 'draft',
-        scheduledAt: null
+        scheduledAt: null,
+        postedUrl: null
       })
       return
     }
-    const dt = dtLocal.trim()
-    if (!dt) return
+    if (mode === 'posted') {
+      const url = postedUrlDraft.trim()
+      onCreate({
+        title: trimmedTitle,
+        body: text,
+        platforms: allPlatforms,
+        accountIds: selectedAccountIds,
+        status: 'posted',
+        scheduledAt: null,
+        postedUrl: url.length > 0 ? url : null
+      })
+      return
+    }
+    if (!dateStr.trim()) return
+    const at = scheduledAtFromParts(dateStr, noTime ? '' : timeStr)
+    if (!at) return
     onCreate({
       title: trimmedTitle,
       body: text,
       platforms: allPlatforms,
       accountIds: selectedAccountIds,
       status: 'scheduled',
-      scheduledAt: new Date(dt).toISOString()
+      scheduledAt: at,
+      postedUrl: null
     })
   }
 
@@ -98,23 +126,38 @@ export default function PostCreateForm({
         </h2>
       )}
 
-      {/* Schedule / Draft tabs */}
-      <div className="pcf-tabs">
+      {/* Draft / Schedule / Already posted */}
+      <div className="pcf-tabs" role="tablist" aria-label="New post type">
         <button
           type="button"
-          className={`pcf-tab${!isDraft ? ' pcf-tab--active' : ''}`}
-          onClick={() => setIsDraft(false)}
+          role="tab"
+          className={`pcf-tab${mode === 'schedule' ? ' pcf-tab--active' : ''}`}
+          onClick={() => setMode('schedule')}
         >
           Schedule
         </button>
         <button
           type="button"
-          className={`pcf-tab${isDraft ? ' pcf-tab--active' : ''}`}
-          onClick={() => setIsDraft(true)}
+          role="tab"
+          className={`pcf-tab${mode === 'draft' ? ' pcf-tab--active' : ''}`}
+          onClick={() => setMode('draft')}
         >
           Draft
         </button>
+        <button
+          type="button"
+          role="tab"
+          className={`pcf-tab${mode === 'posted' ? ' pcf-tab--active' : ''}`}
+          onClick={() => setMode('posted')}
+        >
+          Posted
+        </button>
       </div>
+      {mode === 'posted' && (
+        <p className="pcf-hint muted small" style={{ margin: '-4px 0 12px' }}>
+          Log something you have already published — add a link if you have one.
+        </p>
+      )}
 
       <label>
         <span className="label">
@@ -134,16 +177,47 @@ export default function PostCreateForm({
         {titleError && <span className="pcf-error-msg">Title is required</span>}
       </label>
 
-      <textarea
-        placeholder="Post text…"
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-      />
+      <label className="pcf-body-field">
+        <span className="label">Body / notes</span>
+        <textarea
+          placeholder="Post text…"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+        />
+      </label>
 
-      {!isDraft && (
-        <label className="grow">
-          <span className="label">Date &amp; time</span>
-          <DateTimePicker value={dtLocal} onChange={setDtLocal} />
+      {mode === 'schedule' && (
+        <div className="grow">
+          <span className="label" style={{ display: 'block', marginBottom: 6 }}>
+            When
+          </span>
+          <ScheduleDateTimeFields
+            idPrefix="pcf"
+            dateValue={dateStr}
+            timeValue={timeStr}
+            onDateChange={setDateStr}
+            onTimeChange={setTimeStr}
+            noTime={noTime}
+            onNoTimeChange={(v) => {
+              setNoTime(v)
+              if (v) setTimeStr('')
+            }}
+            showDateError={scheduleDateError}
+          />
+        </div>
+      )}
+
+      {mode === 'posted' && (
+        <label>
+          <span className="label">Link to live post (optional)</span>
+          <input
+            type="url"
+            inputMode="url"
+            placeholder="https://…"
+            value={postedUrlDraft}
+            onChange={(e) => setPostedUrlDraft(e.target.value)}
+            autoComplete="off"
+          />
         </label>
       )}
 
@@ -151,24 +225,20 @@ export default function PostCreateForm({
       <div className="platform-picker-stack">
         <span className="label">
           Platforms
-          {accounts.length === 0 && (
-            <span className="platform-picker-hint muted">
-              — add accounts in Settings to select specific profiles
-            </span>
-          )}
+          <span className="platform-picker-hint muted">
+            — toggle active platforms in Settings
+          </span>
         </span>
-        {PLATFORM_OPTIONS.map((p) => {
+        {formPlatformLabels.map((p) => {
           const platformKey = ACCOUNT_PLATFORM_LABELS[p]
           const grpAccounts = platformKey ? accounts.filter((a) => a.platform === platformKey) : []
           const meta = platformKey ? PLATFORM_META[platformKey] : null
 
           return (
             <div key={p} className="platform-picker-row">
-              <span
-                className="platform-picker-row-label"
-                style={meta ? { color: meta.color } : undefined}
-              >
-                {p}
+              <span className="platform-picker-row-label">
+                {platformKey && <PlatformLogoImg platform={platformKey} size={20} />}
+                <span className="platform-picker-row-name">{p}</span>
               </span>
               {grpAccounts.length > 0 ? (
                 <div className="platform-picker-row-accounts">
@@ -178,6 +248,7 @@ export default function PostCreateForm({
                         type="checkbox"
                         checked={selectedAccountIds.includes(acc.id)}
                         onChange={() => toggleAccount(acc.id)}
+                        aria-label={`${p}: ${acc.name}`}
                       />
                       <span className="chip-account-dot" style={{ background: meta!.color }} aria-hidden />
                       {acc.name}
@@ -185,13 +256,13 @@ export default function PostCreateForm({
                   ))}
                 </div>
               ) : (
-                <label className="chip">
+                <label className="chip chip--platform-solo">
                   <input
                     type="checkbox"
                     checked={selectedPlatforms.includes(p)}
                     onChange={() => togglePlatform(p)}
+                    aria-label={`Include ${p}`}
                   />
-                  Select
                 </label>
               )}
             </div>

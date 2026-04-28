@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import PostPills from '../components/PostPills'
 import Tip from '../components/Tip'
 import BannerCropModal from '../components/BannerCropModal'
@@ -6,6 +6,7 @@ import { isBannerEnabled } from './SettingsView'
 import { PLATFORM_META } from '../accounts/types'
 import type { Platform } from '../accounts/types'
 import type { NavId } from '../nav'
+import { pad2 } from '../posts/datetime'
 import type { Post } from '../posts/types'
 
 function fmt(iso: string): string {
@@ -72,7 +73,26 @@ function youTubeThumbnail(url: string): string | null {
   return m ? `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg` : null
 }
 
-function PostThumbnailCard({ post }: { post: Post }): React.ReactElement {
+function RecentPostTextIcon(): React.ReactElement {
+  return (
+    <svg
+      className="recent-post-text-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      <path
+        d="M4 5.5h16M4 10h16M4 14.5h12M4 19h9"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function PostThumbnailCard({ post, onOpen }: { post: Post; onOpen: (id: string) => void }): React.ReactElement {
   const [thumb, setThumb] = useState<string | null>(null)
   const [thumbErr, setThumbErr] = useState(false)
 
@@ -95,7 +115,11 @@ function PostThumbnailCard({ post }: { post: Post }): React.ReactElement {
   const showImage = thumb && !thumbErr
 
   return (
-    <div className="recent-post-card card">
+    <button
+      type="button"
+      className="recent-post-card card"
+      onClick={() => onOpen(post.id)}
+    >
       <div
         className="recent-post-thumb"
         style={showImage ? undefined : { background: gradient }}
@@ -109,12 +133,14 @@ function PostThumbnailCard({ post }: { post: Post }): React.ReactElement {
           />
         ) : (
           <div className="recent-post-thumb-placeholder">
+            <div className="recent-post-thumb-icon-wrap">
+              <RecentPostTextIcon />
+            </div>
             {platformLabel && (
-              <span className="recent-post-thumb-platform">{platformLabel}</span>
+              <div className="recent-post-thumb-placeholder-bottom">
+                <span className="recent-post-thumb-platform">{platformLabel}</span>
+              </div>
             )}
-            <p className="recent-post-thumb-text">
-              {post.title || post.body.slice(0, 60) || 'Untitled'}
-            </p>
           </div>
         )}
       </div>
@@ -131,16 +157,23 @@ function PostThumbnailCard({ post }: { post: Post }): React.ReactElement {
           )}
         </div>
       </div>
-    </div>
+    </button>
   )
 }
 
 export default function DashboardView({
   posts,
-  onNavigate
+  onNavigate,
+  onOpenPostDetail
 }: {
   posts: Post[]
-  onNavigate: (id: NavId) => void
+  onNavigate: (
+    id: NavId,
+    section?: 'drafts' | 'content',
+    statusFilter?: 'draft' | 'scheduled' | 'posted',
+    calendarDateKey?: string
+  ) => void
+  onOpenPostDetail: (postId: string) => void
 }): React.ReactElement {
   const now = Date.now()
 
@@ -148,6 +181,15 @@ export default function DashboardView({
   const scheduled = posts.filter((p) => p.status === 'scheduled')
   const posted = posts.filter((p) => p.status === 'posted')
   const overdue = scheduled.filter((p) => p.scheduledAt && new Date(p.scheduledAt).getTime() < now)
+
+  const firstOverdueDateKey = useMemo(() => {
+    if (overdue.length === 0) return undefined
+    const sorted = [...overdue].sort(
+      (a, b) => new Date(a.scheduledAt!).getTime() - new Date(b.scheduledAt!).getTime()
+    )
+    const d = new Date(sorted[0].scheduledAt!)
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+  }, [overdue])
 
   const upcoming = [...scheduled]
     .filter((p) => p.scheduledAt && new Date(p.scheduledAt).getTime() >= now)
@@ -161,8 +203,6 @@ export default function DashboardView({
   const recentPosted = [...posted]
     .sort((a, b) => new Date(b.scheduledAt ?? b.createdAt).getTime() - new Date(a.scheduledAt ?? a.createdAt).getTime())
     .slice(0, 6)
-
-  const total = posts.length
 
   const GREETING_KEY = 'smm-dash-greeting'
   const DEFAULT_GREETING = 'Welcome back!'
@@ -289,29 +329,27 @@ export default function DashboardView({
       <div className="stat-grid">
         {(
           [
-            { label: 'Drafts', value: drafts.length, nav: 'content' },
-            { label: 'Scheduled', value: scheduled.length, nav: 'calendar' },
-            { label: 'Posted', value: posted.length, nav: 'content' },
-            { label: 'Overdue', value: overdue.length, nav: 'calendar', danger: overdue.length > 0 },
-            { label: 'Total', value: total, nav: null }
-          ] as { label: string; value: number; nav: NavId | null; danger?: boolean }[]
-        ).map(({ label, value, nav, danger }) =>
-          nav ? (
-            <button
-              key={label}
-              type="button"
-              className={`stat-card${danger ? ' stat-card--overdue' : ''}`}
-              onClick={() => onNavigate(nav)}
-            >
-              <span className="stat-value">{value}</span>
-              <span className="stat-label">{label}</span>
-            </button>
-          ) : (
-            <div key={label} className="stat-card static">
-              <span className="stat-value">{value}</span>
-              <span className="stat-label">{label}</span>
-            </div>
-          )
+            { label: 'Drafts', value: drafts.length, nav: 'content', section: 'drafts' as const, statusFilter: undefined },
+            { label: 'Scheduled', value: scheduled.length, nav: 'calendar', section: undefined, statusFilter: undefined },
+            { label: 'Posted', value: posted.length, nav: 'content', section: 'content' as const, statusFilter: 'posted' as const },
+            { label: 'Overdue', value: overdue.length, nav: 'calendar', section: undefined, statusFilter: undefined, danger: true }
+          ] as { label: string; value: number; nav: NavId; section?: 'drafts' | 'content'; statusFilter?: 'draft' | 'scheduled' | 'posted'; danger?: boolean }[]
+        ).map(({ label, value, nav, section, statusFilter, danger }) =>
+          <button
+            key={label}
+            type="button"
+            className={`stat-card${danger && overdue.length > 0 ? ' stat-card--overdue' : ''}`}
+            onClick={() => {
+              if (label === 'Overdue' && firstOverdueDateKey) {
+                onNavigate('calendar', undefined, undefined, firstOverdueDateKey)
+              } else {
+                onNavigate(nav, section, statusFilter)
+              }
+            }}
+          >
+            <span className="stat-value">{value}</span>
+            <span className="stat-label">{label}</span>
+          </button>
         )}
       </div>
 
@@ -322,7 +360,7 @@ export default function DashboardView({
             <h2 className="dash-overdue-heading">
               ⚠ {overdue.length} overdue {overdue.length === 1 ? 'post' : 'posts'}
             </h2>
-            <button type="button" className="ghost linkish" onClick={() => onNavigate('calendar')}>
+            <button type="button" className="ghost linkish" onClick={() => onNavigate('calendar', undefined, undefined, firstOverdueDateKey)}>
               Open calendar
             </button>
           </div>
@@ -350,7 +388,7 @@ export default function DashboardView({
         <section className="dashboard-section card">
           <div className="section-head">
             <h2>Next up</h2>
-            <button type="button" className="ghost linkish" onClick={() => onNavigate('calendar')}>
+            <button type="button" className="ghost linkish" onClick={() => onNavigate('calendar', undefined, undefined, firstOverdueDateKey)}>
               Open calendar
             </button>
           </div>
@@ -388,7 +426,7 @@ export default function DashboardView({
         <section className="dashboard-section card">
           <div className="section-head">
             <h2>Recent drafts</h2>
-            <button type="button" className="ghost linkish" onClick={() => onNavigate('content')}>
+            <button type="button" className="ghost linkish" onClick={() => onNavigate('content', 'drafts')}>
               View all
             </button>
           </div>
@@ -422,13 +460,13 @@ export default function DashboardView({
         <section className="dashboard-section card dash-recent-posts">
           <div className="section-head">
             <h2>Recent posts</h2>
-            <button type="button" className="ghost linkish" onClick={() => onNavigate('content')}>
+            <button type="button" className="ghost linkish" onClick={() => onNavigate('content', 'content', 'posted')}>
               View all
             </button>
           </div>
           <div className="recent-posts-grid">
             {recentPosted.map((p) => (
-              <PostThumbnailCard key={p.id} post={p} />
+              <PostThumbnailCard key={p.id} post={p} onOpen={onOpenPostDetail} />
             ))}
           </div>
         </section>

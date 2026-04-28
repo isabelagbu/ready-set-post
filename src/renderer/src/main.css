@@ -224,225 +224,224 @@ select:focus {
   outline-offset: 0;
 }
 
-/* ─── Custom DateTimePicker ──────────────────────────── */
-.dtp-trigger {
+/* ─── Schedule date / time (native inputs) ──────────── */
+.sched-dt-row {
+  --sched-dt-input-h: 2.25rem;
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: start;
+  vertical-align: top;
+}
+@media (max-width: 24rem) {
+  .sched-dt-row {
+    display: grid;
+    width: 100%;
+    grid-template-columns: 1fr;
+  }
+}
+.sched-dt-field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* Visible “pretty” date + invisible native input (value stays YYYY-MM-DD) */
+.sched-dt-date-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: var(--sched-dt-input-h);
+  border-radius: 6px;
+}
+.sched-dt-date-faux {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   width: 100%;
-  padding: 7px 10px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0 10px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
   font-size: 0.875rem;
-  cursor: pointer;
+  line-height: 1.2;
+  font-family: inherit;
+  pointer-events: none;
+}
+.sched-dt-date-faux--empty .sched-dt-date-faux__text {
+  color: var(--muted);
+}
+.sched-dt-date-faux__text {
+  min-width: 0;
   text-align: left;
-  gap: 8px;
-  transition: border-color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.dtp-trigger:hover {
-  border-color: var(--accent-border);
+/* Calendar glyph — theme accent, same as previous native picker styling */
+.sched-dt-date-faux__icon {
+  width: 1.125em;
+  height: 1.125em;
+  flex-shrink: 0;
+  background-color: var(--accent);
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'%3E%3Cpath d='M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM7 10h5v5H7z'/%3E%3C/svg%3E");
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
 }
-.dtp-trigger:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+.sched-dt-date-wrap:focus-within .sched-dt-date-faux {
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
 }
-.dtp-trigger--disabled {
+.sched-dt-date-wrap--error .sched-dt-date-faux {
+  border-color: var(--danger) !important;
+}
+.sched-dt-date-wrap--error:focus-within .sched-dt-date-faux {
+  outline-color: var(--danger);
+}
+.sched-dt-date-wrap--disabled .sched-dt-date-faux {
   opacity: 0.45;
+  cursor: not-allowed;
+}
+.sched-dt-date-wrap--disabled .sched-dt-date-faux__icon {
+  background-color: var(--muted);
+}
+.sched-dt-date-native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+  font-size: 1rem;
+  accent-color: var(--accent);
+  caret-color: var(--accent-ink);
+}
+.sched-dt-date-native:disabled {
   cursor: not-allowed;
   pointer-events: none;
 }
-.dtp-display-text {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.sched-dt-date-native:focus {
+  outline: none;
 }
-.dtp-icon {
-  width: 15px;
-  height: 15px;
-  flex-shrink: 0;
-  opacity: 0.45;
-}
-
-/* Popover */
-.dtp-popover {
-  position: fixed;
-  z-index: 10000;
-  width: max-content;
+/* Match date faux: same height (Chromium time adds extra padding without resets) */
+.sched-dt-field input[type="time"],
+.sched-dt-time-input {
+  box-sizing: border-box;
+  height: var(--sched-dt-input-h);
+  min-height: var(--sched-dt-input-h);
+  max-height: var(--sched-dt-input-h);
+  margin: 0;
+  padding: 0 10px;
+  line-height: 1.2;
+  /* style like text field, not OS clock widget */
+  -webkit-appearance: none;
+  appearance: none;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
-  overflow: hidden;
-  font-size: 0.8125rem;
-}
-
-/* Body */
-.dtp-body {
-  display: flex;
-}
-
-/* Calendar side */
-.dtp-cal {
-  padding: 10px;
-  width: 210px;
-  flex-shrink: 0;
-}
-.dtp-cal-nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-.dtp-cal-title {
-  font-weight: 600;
-  font-size: 0.8125rem;
+  border-radius: 6px;
   color: var(--text);
+  font-size: 0.875rem;
+  font-family: inherit;
+  accent-color: var(--accent);
+  caret-color: var(--accent-ink);
 }
-.dtp-nav-btn {
-  background: none;
-  border: none;
-  padding: 3px 7px;
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 1rem;
-  border-radius: 4px;
-  line-height: 1;
-  transition: background 0.12s, color 0.12s;
-}
-.dtp-nav-btn:hover {
-  background: var(--accent-fill);
-  color: var(--text);
-}
-.dtp-weekdays {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  margin-bottom: 2px;
-}
-.dtp-weekdays span {
-  text-align: center;
-  color: var(--muted);
-  font-size: 0.7rem;
-  padding: 2px 0;
-}
-.dtp-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 1px;
-}
-.dtp-day {
-  aspect-ratio: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: none;
-  cursor: pointer;
-  border-radius: 50%;
-  font-size: 0.775rem;
-  color: var(--text);
+.sched-dt-field input[type="time"]::-webkit-calendar-picker-indicator {
+  margin-top: 0;
+  margin-bottom: 0;
   padding: 0;
-  transition: background 0.1s;
+  cursor: pointer;
+  opacity: 0.9;
 }
-.dtp-day:hover {
-  background: var(--accent-fill);
+.sched-dt-field input[type="time"]::-webkit-datetime-edit,
+.sched-dt-field input[type="time"]::-webkit-datetime-edit-fields-wrapper {
+  height: 100%;
+  padding: 0;
+  box-sizing: border-box;
 }
-.dtp-day--other {
-  color: var(--muted);
-  opacity: 0.4;
-}
-.dtp-day--today {
-  border: 1.5px solid var(--accent-base);
-  color: var(--accent-base);
-  font-weight: 600;
-}
-.dtp-day--sel {
-  background: var(--accent-base) !important;
-  color: #fff !important;
-  font-weight: 600;
-}
-
-/* Divider */
-.dtp-divider {
-  width: 1px;
-  background: var(--border);
-  margin: 8px 0;
-  flex-shrink: 0;
-}
-
-/* Time side */
-.dtp-time {
+.sched-dt-field input[type="time"]::-webkit-datetime-edit-fields-wrapper {
   display: flex;
-  padding: 10px 12px 10px 2px;
-  gap: 0;
+  align-items: center;
+  min-width: 0;
 }
-.dtp-time-col {
+.sched-dt-field input[type="time"]::-webkit-datetime-edit-ampm-field,
+.sched-dt-field input[type="time"]::-webkit-datetime-edit-hour-field,
+.sched-dt-field input[type="time"]::-webkit-datetime-edit-minute-field {
+  padding: 0 1px;
+}
+.sched-dt-field input[type="time"]::selection,
+.sched-dt-time-input::selection {
+  background: color-mix(in srgb, var(--accent-base) 40%, var(--surface));
+  color: var(--text);
+}
+.sched-dt-time-col {
   display: flex;
   flex-direction: column;
-  max-height: 200px;
-  overflow-y: auto;
-  scrollbar-width: none;
+  gap: 4px;
+  width: 100%;
+  max-width: 100%;
 }
-.dtp-time-col::-webkit-scrollbar {
-  width: 3px;
-}
-.dtp-time-col::-webkit-scrollbar-track {
-  background: transparent;
-}
-.dtp-time-col::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 99px;
-}
-.dtp-time-col:hover::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--border) 80%, transparent);
-}
-.dtp-time-col + .dtp-time-col {
-  border-left: 1px solid var(--border);
-}
-.dtp-time-btn {
-  background: none;
-  border: none;
-  padding: 5px 14px;
-  border-radius: 5px;
-  cursor: pointer;
-  color: var(--text);
-  font-size: 0.8rem;
-  white-space: nowrap;
-  text-align: center;
-  transition: background 0.1s;
-}
-.dtp-time-btn:hover {
-  background: var(--accent-fill);
-}
-.dtp-time-btn--sel {
-  background: var(--accent-base) !important;
-  color: #fff !important;
-  font-weight: 600;
-}
-
-/* Footer */
-.dtp-footer {
+.sched-dt-time-inline {
   display: flex;
-  justify-content: space-between;
+  flex-direction: row;
   align-items: center;
-  padding: 6px 10px;
-  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  width: 100%;
+  min-width: 0;
 }
-.dtp-footer-btn {
-  background: none;
-  border: none;
-  padding: 4px 8px;
-  cursor: pointer;
-  color: var(--accent-base);
+.sched-dt-time-inline .sched-dt-time-input,
+.sched-dt-row .sched-dt-field input[type="time"] {
+  width: 100%;
+  max-width: 100%;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.sched-dt-no-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
   font-size: 0.8125rem;
-  border-radius: 4px;
-  font-weight: 500;
-  transition: background 0.12s;
+  color: var(--text);
+  user-select: none;
+  margin: 0;
+  cursor: pointer;
+  white-space: nowrap;
 }
-.dtp-footer-btn:hover {
-  background: var(--accent-fill);
+.sched-dt-no-time input {
+  width: auto;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.sched-dt-no-time:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.sched-dt-field input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.sched-dt-field input:disabled::-webkit-calendar-picker-indicator {
+  background-color: var(--muted);
+  cursor: not-allowed;
 }
 
 .shell {
@@ -734,6 +733,7 @@ select:focus {
   word-break: break-word;
 }
 
+
 .post-title {
   margin: 0 0 8px;
   font-weight: 800;
@@ -763,6 +763,39 @@ select:focus {
 .post-body-hit:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+.post-body-hit--with-thumb {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.post-body-hit-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.content-card-thumb {
+  width: 160px;
+  height: 106px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+/* Calendar day panel: thumbnail above text */
+.post-body-hit--thumb-stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.calendar-panel .post-body-hit--thumb-stacked .content-card-thumb {
+  width: 100%;
+  height: 140px;
+  max-height: 40vw;
 }
 
 /* Content list: whole card lifts + light accent wash on hover. */
@@ -819,6 +852,10 @@ select:focus {
   transform: scale(0.97);
 }
 
+.calendar-panel .day-post-list > li.card.post.day-calendar-post.day-calendar-post--dragging {
+  opacity: 0.05;
+}
+
 .calendar-panel .day-post-list > li.card.post.day-calendar-post:hover {
   z-index: 1;
   transform: translateY(-5px);
@@ -827,6 +864,24 @@ select:focus {
   box-shadow:
     0 12px 28px color-mix(in srgb, var(--accent-base) 20%, transparent),
     0 4px 12px color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.calendar-panel .day-post-list > li.card.post.day-calendar-post--overdue {
+  border-color: color-mix(in srgb, #b91c1c 55%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #b91c1c 40%, transparent);
+}
+
+.day-calendar-post-overdue-label {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 2;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  color: var(--danger);
+  pointer-events: none;
 }
 
 .post-notes-indicator {
@@ -913,16 +968,24 @@ select:focus {
   flex-shrink: 0;
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px 20px;
   padding: 12px 20px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
 
+.post-notes-full-toolbar--editing {
+  align-items: center;
+}
+
 .post-notes-full-back {
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 0;
+}
+
+.post-notes-full-toolbar--editing .post-notes-full-back {
+  margin-top: 0;
 }
 
 .post-notes-full-toolbar-text {
@@ -1449,7 +1512,7 @@ select:focus {
 /* ── Stat grid ── */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -1457,13 +1520,13 @@ select:focus {
 .stat-card {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 2px;
-  padding: 14px 16px;
+  padding: 22px 16px;
   border-radius: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
-  text-align: left;
+  text-align: center;
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 
@@ -1473,10 +1536,6 @@ select:focus {
   transform: translateY(-2px);
 }
 
-.stat-card.static {
-  cursor: default;
-  background: var(--surface-muted);
-}
 
 .stat-value {
   font-size: 1.9rem;
@@ -1584,8 +1643,25 @@ select:focus {
   flex-direction: column;
   overflow: hidden;
   padding: 0;
+  margin: 0;
+  width: 100%;
   border-radius: 12px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: var(--surface);
+  border: 1px solid var(--border);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.recent-post-card:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+.recent-posts-grid .recent-post-card {
+  margin-bottom: 0;
 }
 
 .recent-post-card:hover {
@@ -1614,10 +1690,38 @@ select:focus {
   height: 100%;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  padding: 12px;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+.recent-post-thumb-icon-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
+.recent-post-text-icon {
+  width: 44px;
+  height: 44px;
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 0.95;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+  flex-shrink: 0;
+}
+
+.recent-post-thumb-placeholder-bottom {
+  display: flex;
+  flex-direction: column;
   align-items: flex-start;
   justify-content: flex-end;
-  padding: 12px;
   gap: 4px;
+  width: 100%;
+  flex-shrink: 0;
 }
 
 .recent-post-thumb-platform {
@@ -1626,19 +1730,6 @@ select:focus {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: rgba(255, 255, 255, 0.7);
-}
-
-.recent-post-thumb-text {
-  margin: 0;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #fff;
-  line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 
 .recent-post-info {
@@ -1863,6 +1954,42 @@ select:focus {
 
 .settings-page {
   max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Section groups: theme → audio → post UI → sign-ins */
+.settings-chapter {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 4px;
+}
+.settings-chapter + .settings-chapter {
+  margin-top: 8px;
+}
+.settings-chapter-title {
+  margin: 20px 0 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.settings-chapter:first-of-type .settings-chapter-title {
+  margin-top: 4px;
+}
+.settings-chapter-lead {
+  margin: 0 0 2px;
+  line-height: 1.45;
+}
+.settings-chapter--last {
+  margin-bottom: 0;
+}
+.settings-chapter .card {
+  margin-bottom: 0;
 }
 
 /* ─── Onboarding ─────────────────────────────────────────── */
@@ -2029,6 +2156,10 @@ select:focus {
 .settings-toggle--on .settings-toggle-thumb {
   transform: translateX(18px);
 }
+.settings-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 .settings-footer {
   margin-top: 32px;
@@ -2056,6 +2187,15 @@ select:focus {
 
 .settings-section--compact .settings-section-lead {
   margin-bottom: 12px;
+}
+
+.settings-form-platform-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.settings-form-platform-row {
+  padding: 3px 0;
 }
 
 .accent-picker {
@@ -2765,6 +2905,11 @@ select:focus {
   margin-bottom: 12px;
 }
 
+.post-create-form .pcf-body-field {
+  display: block;
+  margin-top: 8px;
+}
+
 /* Schedule / Draft tabs inside create form */
 .pcf-tabs {
   display: flex;
@@ -2856,6 +3001,9 @@ select:focus {
   .calendar-weekday {
     font-size: 0.7rem;
   }
+  .calendar-day-overdue-label {
+    display: none;
+  }
 }
 
 /* Very compact — small window */
@@ -2884,6 +3032,9 @@ select:focus {
 .calendar-main {
   padding: 14px 16px;
   margin-bottom: 0;
+  align-self: start;
+  position: sticky;
+  top: 20px;
 }
 
 .calendar-toolbar {
@@ -2981,6 +3132,15 @@ select:focus {
   box-shadow: 0 0 0 1px var(--accent-fill);
 }
 
+.calendar-day.has-overdue {
+  border-color: color-mix(in srgb, #b91c1c 58%, var(--border));
+  box-shadow: none;
+}
+
+.calendar-day.has-overdue:hover {
+  border-color: color-mix(in srgb, #b91c1c 72%, var(--border));
+}
+
 .calendar-day.drag-over {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -2991,6 +3151,16 @@ select:focus {
 .calendar-day-num {
   font-size: 0.85rem;
   font-variant-numeric: tabular-nums;
+}
+
+.calendar-day-overdue-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  color: #b91c1c;
+  line-height: 1.1;
+  margin-top: 6px;
 }
 
 /* ─── Calendar day tooltip ───────────────────────────────── */
@@ -3053,6 +3223,11 @@ select:focus {
   padding-top: 4px;
 }
 
+.calendar-day-tooltip-item--overdue {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
 .calendar-day-badge {
   margin-top: 3px;
   min-width: 16px;
@@ -3073,7 +3248,7 @@ select:focus {
   padding: 14px;
   margin-bottom: 0;
   position: sticky;
-  top: 12px;
+  top: 20px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -3171,13 +3346,6 @@ select:focus {
 }
 
 /* ─── Settings — account management ─────────────────── */
-.settings-account-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
 .settings-platform-group {
   margin-top: 20px;
   padding-top: 16px;
@@ -3362,7 +3530,7 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 8px 12px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   flex-shrink: 0;
@@ -3372,7 +3540,7 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 6px 16px;
+  padding: 5px 14px;
   border: 1px solid transparent;
   border-radius: 7px;
   background: none;
@@ -3391,14 +3559,6 @@ select:focus {
   color: var(--text);
   border-color: var(--accent-border);
 }
-.accounts-tab-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--platform-color, var(--accent-base));
-  flex-shrink: 0;
-}
-
 /* Nav controls (back / forward / refresh) */
 .accounts-nav {
   display: flex;
@@ -3409,7 +3569,7 @@ select:focus {
 .accounts-nav-btn {
   background: none;
   border: none;
-  padding: 5px 9px;
+  padding: 4px 8px;
   border-radius: 6px;
   cursor: pointer;
   color: var(--muted);
@@ -3553,16 +3713,47 @@ select:focus {
   min-height: 28px;
 }
 .platform-picker-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 0 0 140px;
   font-size: 0.8rem;
   font-weight: 600;
-  width: 80px;
   flex-shrink: 0;
   letter-spacing: 0.01em;
+  /* Theme text, not platform brand hex — TikTok/X use #000 and disappear on dark surfaces */
+  color: var(--text);
+}
+.platform-picker-row-name {
+  min-width: 0;
+}
+.platform-logo-img {
+  display: block;
+  object-fit: cover;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+/* Opaque white behind the X asset so transparent areas read as white (not the page background). */
+.platform-logo-img--x {
+  background: #fff;
+  object-fit: contain;
 }
 .platform-picker-row-accounts {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.chip--platform-solo {
+  padding: 0 2px;
+  min-width: 22px;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+}
+.chip--platform-solo input {
+  margin: 0;
 }
 
 /* Account chip variant */

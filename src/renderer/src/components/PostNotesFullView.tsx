@@ -42,19 +42,14 @@ export default function PostNotesFullView({
       aria-modal="true"
       aria-labelledby="post-notes-full-title"
     >
-      <header className="post-notes-full-toolbar">
+      <header className={`post-notes-full-toolbar${editing ? ' post-notes-full-toolbar--editing' : ''}`}>
         <button type="button" className="ghost post-notes-full-back" onClick={onClose}>
           ← Back
         </button>
         <div className="post-notes-full-toolbar-text">
           <h1 id="post-notes-full-title" className="post-notes-full-title">
-            {editing ? 'Edit post' : 'Script & production notes'}
+            {editing ? 'Edit post' : 'Full details'}
           </h1>
-          {!editing && (
-            <p className="muted small post-notes-full-sub">
-              Full screen while you record — edits save automatically.
-            </p>
-          )}
         </div>
         <div className="post-notes-full-toolbar-actions">
           <button

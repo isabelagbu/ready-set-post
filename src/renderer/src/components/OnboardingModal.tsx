@@ -25,7 +25,7 @@ const STEPS = [
       </svg>
     ),
     title: 'Create & schedule posts',
-    body: 'Hit the + button in Content or Calendar to write a post. Add a date to schedule it, or save it as a draft to come back to later.'
+    body: 'Hit the + button in Content or Calendar to write a post. Set a date to schedule it, or save as a draft to finish later.'
   },
   {
     icon: (
@@ -34,8 +34,29 @@ const STEPS = [
         <path d="M16 2v4M8 2v4M3 10h18" />
       </svg>
     ),
-    title: 'See your schedule at a glance',
-    body: 'The Calendar view shows all your scheduled posts by date. Click any day to view, create, or edit posts for that day.'
+    title: 'Drag to reschedule',
+    body: 'The Calendar shows all your posts by date. Drag any post card onto a new day to reschedule it instantly — no editing required.'
+  },
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" width="52" height="52">
+        <rect x="2" y="3" width="20" height="14" rx="2" />
+        <path d="M8 21h8M12 17v4" />
+      </svg>
+    ),
+    title: 'Your dashboard, your way',
+    body: 'Upload a cover photo for your dashboard and double-click the greeting to make it yours. Stats, upcoming posts, and recent work are always at a glance.'
+  },
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" width="52" height="52">
+        <path d="M18 8h1a4 4 0 0 1 0 8h-1" />
+        <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" />
+        <path d="M6 1v3M10 1v3M14 1v3" />
+      </svg>
+    ),
+    title: 'Never miss a post',
+    body: 'Enable Reminders in Settings and you\'ll get a system notification the moment a scheduled post is due. Test it with the button in Settings to make sure it works.'
   },
   {
     icon: (
@@ -45,17 +66,20 @@ const STEPS = [
       </svg>
     ),
     title: 'Add your accounts',
-    body: 'Go to Settings → Accounts to add your TikTok, Instagram, YouTube, LinkedIn, and X profiles. Each one gets its own browser tab in the Accounts view.'
+    body: 'Go to Settings → Accounts to add your TikTok, Instagram, YouTube, LinkedIn, and X profiles. Each one gets its own live browser tab in the Accounts view.'
   },
   {
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" width="52" height="52">
-        <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-        <path d="M3 21h4" />
+        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="16" y1="13" x2="8" y2="13" />
+        <line x1="16" y1="17" x2="8" y2="17" />
+        <line x1="10" y1="9" x2="8" y2="9" />
       </svg>
     ),
-    title: 'Write your scripts & notes',
-    body: 'Open any post\'s detail view to write a full script, hashtags, and production notes. Use the Notepad for anything else — 10 tabs, all yours.'
+    title: 'Scripts, notes & sticky ideas',
+    body: 'Click any post to write a full script, hashtags, and captions. Use the Notepad\'s 10 tabs for free-form notes, and spawn colour-coded sticky notes for quick ideas.'
   }
 ]
 

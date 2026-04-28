@@ -1,10 +1,34 @@
 import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, Notification, shell } from 'electron'
-
-app.name = 'Ready Set Post!'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import { getSeedPosts, SEED_SCRATCHPAD } from './seed-data'
+
+const APP_NAME = 'Ready Set Post'
+const APP_ICON_PATH = resolve(process.cwd(), 'build/icon.png')
+const ALLOWED_EXTERNAL_HOSTS = new Set([
+  'instagram.com',
+  'www.instagram.com',
+  'tiktok.com',
+  'www.tiktok.com',
+  'youtube.com',
+  'www.youtube.com',
+  'linkedin.com',
+  'www.linkedin.com',
+  'x.com',
+  'www.x.com'
+])
+
+app.setName(APP_NAME)
+
+function isSafeExternalUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl)
+    return parsed.protocol === 'https:' && ALLOWED_EXTERNAL_HOSTS.has(parsed.hostname.toLowerCase())
+  } catch {
+    return false
+  }
+}
 
 /** DevTools (F12) in dev; block refresh/devtools shortcuts in production — avoids toolkit loading before `app` exists when bundled. */
 function watchWindowShortcuts(win: BrowserWindow): void {
@@ -85,7 +109,8 @@ function createWindow(): void {
     height: 820,
     minWidth: 800,
     minHeight: 560,
-    title: 'Ready Set Post!',
+    title: APP_NAME,
+    icon: APP_ICON_PATH,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#fff8fa',
@@ -97,9 +122,36 @@ function createWindow(): void {
     }
   })
 
+  if (app.isPackaged) {
+    mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+      const responseHeaders = details.responseHeaders ?? {}
+      const csp =
+        "default-src 'self'; " +
+        "script-src 'self'; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data: https:; " +
+        "font-src 'self' data:; " +
+        "connect-src 'self' https:; " +
+        "media-src 'self' data:; " +
+        "object-src 'none'; " +
+        "base-uri 'self'; " +
+        "form-action 'self'; " +
+        "frame-src 'self' https:; " +
+        "frame-ancestors 'none'"
+      callback({
+        responseHeaders: {
+          ...responseHeaders,
+          'Content-Security-Policy': [csp]
+        }
+      })
+    })
+  }
+
   mainWindow.on('ready-to-show', () => mainWindow.show())
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (isSafeExternalUrl(details.url)) {
+      void shell.openExternal(details.url)
+    }
     return { action: 'deny' }
   })
 
@@ -112,6 +164,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  app.setName(APP_NAME)
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(APP_ICON_PATH)
+  }
   nativeTheme.themeSource = 'system'
   if (process.platform === 'win32') {
     app.setAppUserModelId(app.isPackaged ? 'com.socialmediamanager.app' : process.execPath)

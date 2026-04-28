@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { playTriplePop } from '../utils/sound'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Tip from '../components/Tip'
@@ -6,12 +6,13 @@ import PostEditorForm from '../components/PostEditorForm'
 import PostNotesFullView from '../components/PostNotesFullView'
 import PostCreateModal from '../components/PostCreateModal'
 import PostPills from '../components/PostPills'
+import PostCardThumb from '../components/PostCardThumb'
 import { useAccounts } from '../accounts/context'
+import { useEnabledPlatformFormLabels } from '../hooks/useEnabledPlatformFormLabels'
 import { ACCOUNT_PLATFORM_LABELS, PLATFORM_META, type Account } from '../accounts/types'
 import {
   livePostUrl,
   newPostId,
-  PLATFORM_OPTIONS,
   EMPTY_CONTENT_NOTES,
   type Post,
   type PostContentNotes,
@@ -101,21 +102,37 @@ const STATUS_FILTER_OPTIONS: { value: Exclude<Status, 'draft'>; label: string }[
 
 export default function ContentView({
   posts,
-  setPosts
+  setPosts,
+  initialSection,
+  initialStatusFilter,
+  initialOpenPostId,
+  onConsumeInitialOpen
 }: {
   posts: Post[]
   setPosts: React.Dispatch<React.SetStateAction<Post[]>>
+  initialSection?: ContentSection
+  initialStatusFilter?: Status
+  /** Open full details for this post (e.g. from Dashboard). */
+  initialOpenPostId?: string
+  onConsumeInitialOpen?: () => void
 }): React.ReactElement {
   const { accounts } = useAccounts()
-  const [section, setSection] = useState<ContentSection>(() => readStoredSection())
+  const enabledFormPlatformLabels = useEnabledPlatformFormLabels()
+  const [section, setSection] = useState<ContentSection>(initialSection ?? readStoredSection())
   const [filterSelected, setFilterSelected] = useState<Set<string>>(() => new Set())
-  const [statusFilterSelected, setStatusFilterSelected] = useState<Set<Status>>(() => new Set())
+  const [statusFilterSelected, setStatusFilterSelected] = useState<Set<Status>>(
+    () => initialStatusFilter ? new Set([initialStatusFilter]) : new Set()
+  )
   const [search, setSearch] = useState('')
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest')
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [notesModalPostId, setNotesModalPostId] = useState<string | null>(null)
+  const [notesModalPostId, setNotesModalPostId] = useState<string | null>(() => initialOpenPostId ?? null)
   const [createOpen, setCreateOpen] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  useLayoutEffect(() => {
+    if (initialOpenPostId) setNotesModalPostId(initialOpenPostId)
+  }, [initialOpenPostId])
 
   const postsInSection = useMemo(
     () => posts.filter((p) => matchesSection(p, section)),
@@ -196,21 +213,24 @@ export default function ContentView({
     | { kind: 'platform'; key: string; label: string }
     | { kind: 'account'; key: string; label: string; color: string }
 
-  const filterRows: FilterRow[] = [
-    ...PLATFORM_OPTIONS.flatMap((p): FilterRow[] => {
-      const platformKey = ACCOUNT_PLATFORM_LABELS[p]
-      const platformAccounts = platformKey ? accounts.filter((a) => a.platform === platformKey) : []
-      return [
-        { kind: 'platform', key: p, label: p },
-        ...platformAccounts.map((acc): FilterRow => ({
-          kind: 'account',
-          key: acc.id,
-          label: acc.name,
-          color: PLATFORM_META[platformKey!].color
-        }))
-      ]
-    })
-  ]
+  const filterRows: FilterRow[] = useMemo(
+    () => [
+      ...enabledFormPlatformLabels.flatMap((p): FilterRow[] => {
+        const platformKey = ACCOUNT_PLATFORM_LABELS[p]
+        const platformAccounts = platformKey ? accounts.filter((a) => a.platform === platformKey) : []
+        return [
+          { kind: 'platform', key: p, label: p },
+          ...platformAccounts.map((acc): FilterRow => ({
+            kind: 'account',
+            key: acc.id,
+            label: acc.name,
+            color: PLATFORM_META[platformKey!].color
+          }))
+        ]
+      })
+    ],
+    [enabledFormPlatformLabels, accounts]
+  )
 
   function openCreate(): void {
     setCreateOpen(true)
@@ -223,8 +243,9 @@ export default function ContentView({
     body: string
     platforms: string[]
     accountIds: string[]
-    status: Extract<Status, 'draft' | 'scheduled'>
+    status: Status
     scheduledAt: string | null
+    postedUrl: string | null
   }): void {
     const nowIso = new Date().toISOString()
     const post: Post = {
@@ -234,8 +255,8 @@ export default function ContentView({
       platforms: payload.platforms,
       accountIds: payload.accountIds,
       status: payload.status,
-      scheduledAt: payload.status === 'draft' ? null : payload.scheduledAt,
-      postedUrl: null,
+      scheduledAt: payload.status === 'scheduled' ? payload.scheduledAt : null,
+      postedUrl: payload.status === 'posted' ? payload.postedUrl : null,
       contentNotes: { ...EMPTY_CONTENT_NOTES },
       createdAt: nowIso
     }
@@ -249,7 +270,7 @@ export default function ContentView({
       <header className="page-header">
         <h1>Content</h1>
         <p className="sub">Manage all your posts and drafts in one place.</p>
-        <Tip>Switch tabs for Drafts vs Content · Filter by platform or status in the side panel · Click any post to open full-screen notes · Hit + to create a new post</Tip>
+        <Tip>Switch tabs for Drafts vs Content · Filter by platform or status in the side panel · Click any post for full details · Hit + to create a new post</Tip>
       </header>
 
       <div className="content-section-tabs" role="tablist" aria-label="Content area">
@@ -420,11 +441,11 @@ export default function ContentView({
                 ) : (
                   <>
                     <div
-                      className="post-body-hit"
+                      className={`post-body-hit${post.status === 'posted' && post.postedUrl ? ' post-body-hit--with-thumb' : ''}`}
                       role="button"
                       tabIndex={0}
                       aria-haspopup="dialog"
-                      aria-label="Open full-screen script and production notes"
+                      aria-label="Open full details"
                       onClick={() => setNotesModalPostId(post.id)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -433,11 +454,16 @@ export default function ContentView({
                         }
                       }}
                     >
-                      <p className="post-title">{post.title}</p>
-                      <p className="body">{post.body}</p>
-                      <span className="muted small post-body-hit-hint">
-                        Click for full-screen notes
-                      </span>
+                      {post.status === 'posted' && post.postedUrl && (
+                        <PostCardThumb postedUrl={post.postedUrl} />
+                      )}
+                      <div className="post-body-hit-text">
+                        <p className="post-title">{post.title}</p>
+                        <p className="body">{post.body}</p>
+                        <span className="muted small post-body-hit-hint">
+                          Click for full details
+                        </span>
+                      </div>
                     </div>
                     {post.status === 'posted' && (
                       <p className="post-live-link-row">
@@ -533,10 +559,16 @@ export default function ContentView({
       {notesModalPost && (
         <PostNotesFullView
           post={notesModalPost}
-          onClose={() => setNotesModalPostId(null)}
+          onClose={() => {
+            setNotesModalPostId(null)
+            onConsumeInitialOpen?.()
+          }}
           onNotesChange={(next) => setNotesForPost(notesModalPost.id, next)}
           onPostChange={(patch) => updatePost(notesModalPost.id, patch)}
-          onDelete={() => removePost(notesModalPost.id)}
+          onDelete={() => {
+            removePost(notesModalPost.id)
+            onConsumeInitialOpen?.()
+          }}
         />
       )}
 

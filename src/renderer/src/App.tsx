@@ -65,6 +65,43 @@ const NAV: { id: NavId; label: string; icon: React.ReactElement }[] = [
 
 export default function App(): React.ReactElement {
   const [active, setActive] = useState<NavId>('dashboard')
+  const [contentSection, setContentSection] = useState<'drafts' | 'content' | undefined>(undefined)
+  const [contentStatusFilter, setContentStatusFilter] = useState<'draft' | 'scheduled' | 'posted' | undefined>(undefined)
+  const [calendarInitialDateKey, setCalendarInitialDateKey] = useState<string | undefined>(undefined)
+  const [contentOpenPostId, setContentOpenPostId] = useState<string | undefined>(undefined)
+
+  function navigateTo(
+    id: NavId,
+    section?: 'drafts' | 'content',
+    statusFilter?: 'draft' | 'scheduled' | 'posted',
+    calendarDateKey?: string
+  ): void {
+    setContentOpenPostId(undefined)
+    setContentSection(id === 'content' ? section : undefined)
+    setContentStatusFilter(id === 'content' ? statusFilter : undefined)
+    if (id === 'calendar') {
+      setCalendarInitialDateKey(calendarDateKey)
+    } else {
+      setCalendarInitialDateKey(undefined)
+    }
+    setActive(id)
+  }
+
+  function openContentPostDetail(postId: string): void {
+    const p = posts.find((x) => x.id === postId)
+    if (!p) return
+    playPop()
+    if (p.status === 'draft') {
+      setContentSection('drafts')
+      setContentStatusFilter(undefined)
+    } else {
+      setContentSection('content')
+      setContentStatusFilter(p.status === 'scheduled' ? 'scheduled' : p.status === 'posted' ? 'posted' : undefined)
+    }
+    setContentOpenPostId(postId)
+    setCalendarInitialDateKey(undefined)
+    setActive('content')
+  }
   const [posts, setPosts] = useState<Post[]>([])
   const [loaded, setLoaded] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -104,6 +141,14 @@ export default function App(): React.ReactElement {
     void window.api.setTheme(theme)
   }, [theme, accent])
 
+  useEffect(() => {
+    if (active !== 'content') {
+      setContentOpenPostId(undefined)
+      setContentSection(undefined)
+      setContentStatusFilter(undefined)
+    }
+  }, [active])
+
   return (
     <div className="shell">
       <aside
@@ -124,7 +169,11 @@ export default function App(): React.ReactElement {
               key={item.id}
               type="button"
               className={`nav-item${active === item.id ? ' active' : ''}`}
-              onClick={() => { playPop(); setActive(item.id) }}
+              onClick={() => {
+                playPop()
+                if (item.id === 'calendar') setCalendarInitialDateKey(undefined)
+                setActive(item.id)
+              }}
               aria-label={item.label}
               title={item.label}
             >
@@ -137,10 +186,30 @@ export default function App(): React.ReactElement {
 
       <main className="main">
         {active === 'dashboard' && (
-          <DashboardView posts={posts} onNavigate={setActive} />
+          <DashboardView
+            posts={posts}
+            onNavigate={(id, section, statusFilter, calendarDateKey) => navigateTo(id, section, statusFilter, calendarDateKey)}
+            onOpenPostDetail={openContentPostDetail}
+          />
         )}
-        {active === 'calendar' && <CalendarView posts={posts} setPosts={setPosts} />}
-        {active === 'content' && <ContentView posts={posts} setPosts={setPosts} />}
+        {active === 'calendar' && (
+          <CalendarView
+            posts={posts}
+            setPosts={setPosts}
+            initialDateKey={calendarInitialDateKey}
+          />
+        )}
+        {active === 'content' && (
+          <ContentView
+            key={`${contentSection ?? 'default'}-${contentStatusFilter ?? 'none'}`}
+            posts={posts}
+            setPosts={setPosts}
+            initialSection={contentSection}
+            initialStatusFilter={contentStatusFilter}
+            initialOpenPostId={contentOpenPostId}
+            onConsumeInitialOpen={() => setContentOpenPostId(undefined)}
+          />
+        )}
         {active === 'notes' && <NotesView />}
         {active === 'accounts' && <AccountsView />}
         {active === 'settings' && (

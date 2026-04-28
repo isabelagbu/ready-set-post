@@ -1,6 +1,6 @@
 {
   "name": "ready-set-post",
-  "productName": "Ready Set Post!",
+  "productName": "Ready Set Post",
   "version": "1.0.0",
   "description": "Ready Set Post — desktop social content manager",
   "main": "./out/main/index.js",
@@ -14,7 +14,7 @@
   },
   "build": {
     "appId": "com.isabelagbu.readysetpost",
-    "productName": "Ready Set Post!",
+    "productName": "Ready Set Post",
     "directories": {
       "output": "dist"
     },
@@ -35,7 +35,7 @@
       ]
     },
     "dmg": {
-      "title": "Ready Set Post!"
+      "title": "Ready Set Post"
     }
   },
   "dependencies": {
@@ -46,8 +46,8 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8",
+    "electron": "^41.3.0",
+    "electron-builder": "^26.8.1",
     "electron-vite": "^3.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

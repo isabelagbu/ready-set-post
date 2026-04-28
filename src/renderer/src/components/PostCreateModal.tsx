@@ -17,8 +17,9 @@ export default function PostCreateModal({
     body: string
     platforms: string[]
     accountIds: string[]
-    status: Extract<Status, 'draft' | 'scheduled'>
+    status: Status
     scheduledAt: string | null
+    postedUrl: string | null
   }) => void
 }): React.ReactElement {
   useEffect(() => {
@@ -44,7 +45,7 @@ export default function PostCreateModal({
               Create new post
             </h2>
             <p className="muted small post-create-modal-sub">
-              Choose Draft or Scheduled, add platforms, and save.
+              Draft, schedule, or log something already published — add platforms, then save.
             </p>
           </div>
           <button type="button" className="ghost post-create-modal-close" onClick={onClose}>

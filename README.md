@@ -8,21 +8,46 @@ Designed & developed by Isabel Agbu.
 
 ## Features
 
+### Dashboard
+- Customisable greeting (double-click to edit)
+- Uploadable cover photo banner with built-in crop tool
+- At-a-glance stat cards: Drafts, Scheduled, Posted, Overdue, Total
+- "Next up" and "Recent drafts" side-by-side for quick access
+- Recent posts grid with YouTube/TikTok thumbnails and platform colours
+- Overdue post warning with one-click calendar link
+- Contextual usage hint cards
+
 ### Content Management
-- Create posts with a title, body, platform tags, and an optional scheduled date
+- Create posts with a title, body, platform selection, and optional scheduled date
 - Three sections: **Drafts**, **Content** (scheduled + posted)
-- Filter by platform or account, search by keyword, and sort by newest or oldest
+- Filter by platform or account, search by keyword, sort by newest or oldest
 - Edit posts inline or delete with a confirmation prompt
 - Mark posts as posted directly from the content card
 
 ### Calendar View
-- Monthly calendar showing all scheduled posts
-- Click any day to view, create, or edit posts for that date
-- Day panel with per-post editing and platform pills
+- Monthly calendar showing all scheduled posts per day
+- Hover over a day with posts to see a bubble of post titles
+- Click any day to open a panel for viewing, creating, or editing posts
+- **Drag-to-reschedule** — drag a post card onto a new date to move it
+- Cards become translucent while dragging for clear visual feedback
 
-### Dashboard
-- At-a-glance overview of overdue, upcoming, and recent draft posts
-- Quick navigation to other views
+### Detailed Notes View
+- Full-screen overlay for script, hashtags, caption, and other notes
+- All fields auto-save continuously
+- Post metadata (status, date, platform pills) shown inline
+- Edit post details without leaving the view
+- Delete post from the toolbar with a confirmation prompt
+- Live post preview: shows YouTube or TikTok thumbnail for posted items
+
+### Notepad
+- 10 persistent tabs (A–J) for free-form scratch notes
+- Double-click any tab to rename it
+- **Sticky notes** — spawn draggable, colour-coded sticky notes anywhere on screen
+  - Six colour themes (yellow, green, pink, purple, orange, teal)
+  - Drag freely; constrained so they never overlap the sidebar
+  - Confirmation bubble before deletion, styled to match the note colour
+  - Scrollbar colour matches each sticky note
+- All content saved automatically
 
 ### Accounts
 - Add multiple accounts per platform (TikTok, Instagram, YouTube, LinkedIn, X)
@@ -31,30 +56,34 @@ Designed & developed by Isabel Agbu.
 - Loading bar and animated indicator while pages load
 - User-agent spoofing for full compatibility with LinkedIn and X
 
-### Detailed Notes View
-- Full-screen overlay for script writing and production notes
-- Sections: Script, Hashtags, Caption, Other notes — all auto-save
-- Post metadata (status, date, platform pills) shown inline
-- Edit post details without leaving the view
-- Delete post from the toolbar with confirmation
-- Live post preview card: shows YouTube or TikTok video thumbnail when a posted URL is added
+### Reminders
+- System notification when a scheduled post becomes due
+- Check runs every 60 seconds in the background
+- Send test notification from Settings to verify macOS permissions
+- Fully toggleable from Settings
 
-### Notepad
-- 10 persistent tabs (A–J) for free-form notes
-- Double-click any tab to rename it
-- All content saved to localStorage
+### Onboarding
+- First-launch onboarding flow walks through core features
+- Dismisses permanently once completed
 
 ### Settings
-- **Primary colour** — choose from accent presets
 - **Appearance** — Light, Dark, or System theme
+- **Primary colour** — Rose, Amber, Forest, Ocean, Violet, Pearl, Onyx
 - **Sound** — toggle click and navigation sounds on or off
-- **Accounts** — add, edit, or remove accounts per platform with custom URLs
+- **Hints** — show or hide contextual tip cards throughout the app
+- **Reminders** — enable/disable post-due notifications + test button
+- **Dashboard** — toggle cover photo banner on or off
+- **Accounts** — add, edit, or remove accounts per platform
 
 ### Sound Effects
-- Subtle pop sound on every button and navigation click
-- Single pop on scheduling a post
+- Subtle pop on every button click and navigation
+- Single pop when scheduling a post or creating a sticky note
 - Triple pop when marking a post as posted
 - Fully toggleable from Settings
+
+### Usage Hints
+- Contextual tip cards in every main view
+- Hint cards can be hidden globally from Settings without reloading
 
 ---
 
@@ -72,13 +101,16 @@ Designed & developed by Isabel Agbu.
 
 ## Tech Stack
 
-- **Electron** — desktop shell, file-system storage, native theme integration
+- **Electron** — desktop shell, file-system storage, native notifications, theme integration
 - **React 19** — UI and component state
 - **TypeScript** — end-to-end type safety
 - **Vite / electron-vite** — fast dev builds and HMR
 - **CSS custom properties + `color-mix()`** — dynamic theming and accent colours
+- **HTML5 Drag and Drop API** — calendar rescheduling and sticky note dragging
+- **react-image-crop** — banner photo cropping
 - **Web Audio / HTML Audio** — sound effects
-- **localStorage** — preferences, notepad tabs, sidebar state, accounts
+- **Electron `Notification`** — native macOS reminders
+- **localStorage** — preferences, notepad tabs, sticky notes, onboarding state
 - **Electron `<webview>`** — embedded social platform browsers
 
 ---
@@ -120,26 +152,33 @@ npm run typecheck
 ```
 src/
 ├── main/               # Electron main process
-│   ├── index.ts        # App setup, IPC handlers, file storage
+│   ├── index.ts        # App setup, IPC handlers, file storage, notifications
 │   └── seed-data.ts    # Default posts shown on first launch
-├── preload/            # Context bridge
+├── preload/            # Context bridge (store, clipboard, notes, theme, notify)
 └── renderer/src/
-    ├── App.tsx          # Shell layout and navigation
+    ├── App.tsx          # Shell layout, navigation, reminders hook
     ├── main.tsx         # React entry, global sound listener
     ├── main.css         # All styles
+    ├── theme.ts         # Theme + accent preset definitions
     ├── accounts/        # AccountsContext, types, localStorage helpers
     ├── components/      # Shared UI components
+    │   ├── BannerCropModal.tsx
+    │   ├── BrandLogo.tsx
     │   ├── ConfirmDialog.tsx
-    │   ├── DateTimePicker.tsx
+    │   ├── ScheduleDateTimeFields.tsx
+    │   ├── OnboardingModal.tsx
     │   ├── PostContentNotesEditor.tsx
     │   ├── PostCreateForm.tsx
     │   ├── PostCreateModal.tsx
     │   ├── PostEditorForm.tsx
     │   ├── PostLivePreview.tsx
     │   ├── PostNotesFullView.tsx
-    │   └── PostPills.tsx
+    │   ├── PostPills.tsx
+    │   └── Tip.tsx
+    ├── hooks/
+    │   └── useReminders.ts
     ├── posts/           # Post type, parsing, platform options
-    ├── utils/           # sound.ts
+    ├── utils/           # sound.ts, hints.ts, reminders.ts
     └── views/
         ├── AccountsView.tsx
         ├── CalendarView.tsx
@@ -153,4 +192,4 @@ src/
 
 ## Data Storage
 
-All posts are persisted to a JSON file in Electron's `userData` directory (`content-store.json`). Preferences (theme, accent, sound, sidebar state, accounts, notepad tabs) are stored in `localStorage`.
+Posts are persisted to a JSON file in Electron's `userData` directory (`content-store.json`). Preferences — theme, accent, sound, sidebar state, accounts, notepad tabs, sticky notes, onboarding status, hints, reminders, banner image — are stored in `localStorage`.

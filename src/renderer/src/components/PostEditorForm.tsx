@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useAccounts } from '../accounts/context'
 import { ACCOUNT_PLATFORM_LABELS, PLATFORM_META } from '../accounts/types'
-import { toDatetimeLocalValue } from '../posts/datetime'
+import { scheduledAtFromParts, toDateInputValue, toTimeInputValue } from '../posts/datetime'
 import { PLATFORM_OPTIONS, type Post, type Status } from '../posts/types'
+import { useEnabledPlatformFormLabels } from '../hooks/useEnabledPlatformFormLabels'
+import PlatformLogoImg from './PlatformLogoImg'
 import { playTriplePop } from '../utils/sound'
-import DateTimePicker from './DateTimePicker'
+import ScheduleDateTimeFields from './ScheduleDateTimeFields'
 
 export default function PostEditorForm({
   post,
@@ -16,6 +18,14 @@ export default function PostEditorForm({
   onCancel: () => void
 }): React.ReactElement {
   const { accounts } = useAccounts()
+  const formPlatformLabels = useEnabledPlatformFormLabels()
+  const platformRowLabels = useMemo(() => {
+    const enabled = new Set(formPlatformLabels)
+    const extra = post.platforms.filter(
+      (p) => (PLATFORM_OPTIONS as readonly string[]).includes(p) && !enabled.has(p as (typeof PLATFORM_OPTIONS)[number])
+    )
+    return [...formPlatformLabels, ...extra]
+  }, [formPlatformLabels, post.platforms])
 
   const [title, setTitle] = useState(post.title)
   const [body, setBody] = useState(post.body)
@@ -28,9 +38,13 @@ export default function PostEditorForm({
     })
   )
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(post.accountIds)
-  const [dtLocal, setDtLocal] = useState(() =>
-    post.scheduledAt ? toDatetimeLocalValue(post.scheduledAt) : ''
+  const [dateStr, setDateStr] = useState(() =>
+    post.scheduledAt ? toDateInputValue(post.scheduledAt) : ''
   )
+  const [timeStr, setTimeStr] = useState(() =>
+    post.scheduledAt ? toTimeInputValue(post.scheduledAt) : ''
+  )
+  const [noTime, setNoTime] = useState(() => !post.scheduledAt)
   const [status, setStatus] = useState<Status>(post.status)
   const [postedUrl, setPostedUrl] = useState(post.postedUrl ?? '')
   const [isDraft, setIsDraft] = useState(post.status === 'draft' && !post.scheduledAt)
@@ -46,6 +60,7 @@ export default function PostEditorForm({
   function save(): void {
     const trimmedTitle = title.trim()
     if (!trimmedTitle) return
+    if (!isDraft && status === 'scheduled' && !dateStr.trim()) return
 
     const accountDerivedPlatforms = [
       ...new Set(
@@ -69,7 +84,9 @@ export default function PostEditorForm({
       })
       return
     }
-    const scheduledAt = dtLocal.trim() ? new Date(dtLocal).toISOString() : null
+    const scheduledAt =
+      isDraft || !dateStr.trim() ? null : scheduledAtFromParts(dateStr, noTime ? '' : timeStr)
+    if (!isDraft && status === 'scheduled' && !scheduledAt) return
     let nextStatus = status
     if (scheduledAt && nextStatus === 'draft') nextStatus = 'scheduled'
     if (!scheduledAt && nextStatus === 'scheduled') nextStatus = 'draft'
@@ -98,10 +115,22 @@ export default function PostEditorForm({
         />
       </label>
       <textarea value={body} onChange={(e) => setBody(e.target.value)} />
-      <label className="grow">
-        <span className="label">Date &amp; time</span>
-        <DateTimePicker value={dtLocal} onChange={setDtLocal} />
-      </label>
+      <div className="grow">
+        <span className="label" style={{ display: 'block', marginBottom: 6 }}>When</span>
+        <ScheduleDateTimeFields
+          idPrefix="post-editor"
+          dateValue={dateStr}
+          timeValue={timeStr}
+          onDateChange={setDateStr}
+          onTimeChange={setTimeStr}
+          noTime={noTime}
+          onNoTimeChange={(v) => {
+            setNoTime(v)
+            if (v) setTimeStr('')
+          }}
+          disabled={isDraft}
+        />
+      </div>
 
       {/* Draft toggle */}
       <div className="row platforms">
@@ -112,7 +141,7 @@ export default function PostEditorForm({
             onChange={(e) => {
               const on = e.target.checked
               setIsDraft(on)
-              if (on) { setDtLocal(''); setStatus('draft') }
+              if (on) { setDateStr(''); setTimeStr(''); setNoTime(true); setStatus('draft') }
             }}
           />
           Draft
@@ -121,19 +150,22 @@ export default function PostEditorForm({
 
       {/* Platform / account picker — one row per platform */}
       <div className="platform-picker-stack">
-        <span className="label">Platforms</span>
-        {PLATFORM_OPTIONS.map((p) => {
+        <span className="label">
+          Platforms
+          <span className="platform-picker-hint muted">
+            — toggle active platforms in Settings
+          </span>
+        </span>
+        {platformRowLabels.map((p) => {
           const platformKey = ACCOUNT_PLATFORM_LABELS[p]
           const grpAccounts = platformKey ? accounts.filter((a) => a.platform === platformKey) : []
           const meta = platformKey ? PLATFORM_META[platformKey] : null
 
           return (
             <div key={p} className="platform-picker-row">
-              <span
-                className="platform-picker-row-label"
-                style={meta ? { color: meta.color } : undefined}
-              >
-                {p}
+              <span className="platform-picker-row-label">
+                {platformKey && <PlatformLogoImg platform={platformKey} size={20} />}
+                <span className="platform-picker-row-name">{p}</span>
               </span>
               {grpAccounts.length > 0 ? (
                 <div className="platform-picker-row-accounts">
@@ -143,6 +175,7 @@ export default function PostEditorForm({
                         type="checkbox"
                         checked={selectedAccountIds.includes(acc.id)}
                         onChange={() => toggleAccount(acc.id)}
+                        aria-label={`${p}: ${acc.name}`}
                       />
                       <span className="chip-account-dot" style={{ background: meta!.color }} aria-hidden />
                       {acc.name}
@@ -150,13 +183,13 @@ export default function PostEditorForm({
                   ))}
                 </div>
               ) : (
-                <label className="chip">
+                <label className="chip chip--platform-solo">
                   <input
                     type="checkbox"
                     checked={selectedPlatforms.includes(p)}
                     onChange={() => togglePlatform(p)}
+                    aria-label={`Include ${p}`}
                   />
-                  Select
                 </label>
               )}
             </div>

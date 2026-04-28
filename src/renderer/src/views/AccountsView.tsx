@@ -1,22 +1,67 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAccounts } from '../accounts/context'
 import { PLATFORM_META } from '../accounts/types'
+import PlatformLogoImg from '../components/PlatformLogoImg'
 
 export default function AccountsView(): React.ReactElement {
   const { accounts } = useAccounts()
+  const safeAccounts = useMemo(
+    () => accounts.filter((a) => Boolean(PLATFORM_META[a.platform])),
+    [accounts]
+  )
   const [activeId, setActiveId] = useState<string | null>(null)
   const [loadingIds, setLoadingIds] = useState<Set<string>>(() => new Set())
   const webviewRefs = useRef<Map<string, HTMLElement | null>>(new Map())
   // Keep cleanup functions per id so we can detach when a webview unmounts
   const cleanupRefs = useRef<Map<string, () => void>>(new Map())
+  const refCallbackById = useRef<Map<string, (el: HTMLElement | null) => void>>(new Map())
 
   // Keep active pointing to a valid account
   const activeAccount =
-    accounts.find((a) => a.id === activeId) ?? accounts[0] ?? null
+    safeAccounts.find((a) => a.id === activeId) ?? safeAccounts[0] ?? null
 
   useEffect(() => {
-    if (activeAccount) setActiveId(activeAccount.id)
-  }, [activeAccount])
+    if (activeAccount && activeId !== activeAccount.id) setActiveId(activeAccount.id)
+  }, [activeAccount, activeId])
+
+  useEffect(() => {
+    return () => {
+      cleanupRefs.current.forEach((cleanup) => cleanup())
+      cleanupRefs.current.clear()
+      webviewRefs.current.clear()
+      refCallbackById.current.clear()
+    }
+  }, [])
+
+  useEffect(() => {
+    const validIds = new Set(safeAccounts.map((a) => a.id))
+    cleanupRefs.current.forEach((cleanup, id) => {
+      if (!validIds.has(id)) {
+        cleanup()
+        cleanupRefs.current.delete(id)
+      }
+    })
+    webviewRefs.current.forEach((_el, id) => {
+      if (!validIds.has(id)) webviewRefs.current.delete(id)
+    })
+    refCallbackById.current.forEach((_cb, id) => {
+      if (!validIds.has(id)) refCallbackById.current.delete(id)
+    })
+    setLoadingIds((prev) => {
+      const next = new Set([...prev].filter((id) => validIds.has(id)))
+      if (next.size === prev.size) {
+        let unchanged = true
+        for (const id of next) {
+          if (!prev.has(id)) {
+            unchanged = false
+            break
+          }
+        }
+        if (unchanged) return prev
+      }
+      return next
+    })
+  }, [safeAccounts])
 
   // Attach load listeners via ref callback — fires as soon as the DOM node exists
   const attachWebview = useCallback((id: string, el: HTMLElement | null) => {
@@ -26,12 +71,10 @@ export default function AccountsView(): React.ReactElement {
     webviewRefs.current.set(id, el)
 
     if (!el) {
-      setLoadingIds((prev) => { const next = new Set(prev); next.delete(id); return next })
       return
     }
 
     const wv = el as Electron.WebviewTag
-    setLoadingIds((prev) => new Set(prev).add(id))
 
     function onStart(): void { setLoadingIds((prev) => new Set(prev).add(id)) }
     function onStop(): void {
@@ -46,6 +89,14 @@ export default function AccountsView(): React.ReactElement {
     })
   }, [])
 
+  const getWebviewRef = useCallback((id: string) => {
+    const existing = refCallbackById.current.get(id)
+    if (existing) return existing
+    const callback = (el: HTMLElement | null) => attachWebview(id, el)
+    refCallbackById.current.set(id, callback)
+    return callback
+  }, [attachWebview])
+
   function wv(id: string): Electron.WebviewTag | null {
     return (webviewRefs.current.get(id) as Electron.WebviewTag | null) ?? null
   }
@@ -53,7 +104,7 @@ export default function AccountsView(): React.ReactElement {
   const currentId = activeAccount?.id ?? null
   const isLoading = currentId ? loadingIds.has(currentId) : false
 
-  if (accounts.length === 0) {
+  if (safeAccounts.length === 0) {
     return (
       <div className="accounts-view accounts-view--empty">
         <div className="accounts-empty-state">
@@ -74,18 +125,17 @@ export default function AccountsView(): React.ReactElement {
     <div className="accounts-view">
       {/* ── Tab bar ── */}
       <div className="accounts-tabs">
-        {accounts.map((acc) => {
+        {safeAccounts.map((acc) => {
           const meta = PLATFORM_META[acc.platform]
           return (
             <button
               key={acc.id}
               type="button"
               className={`accounts-tab${currentId === acc.id ? ' accounts-tab--active' : ''}`}
-              style={{ '--platform-color': meta.color } as React.CSSProperties}
               onClick={() => setActiveId(acc.id)}
               title={`${meta.label}: ${acc.name}`}
             >
-              <span className="accounts-tab-dot" aria-hidden />
+              <PlatformLogoImg platform={acc.platform} size={16} />
               <span className="accounts-tab-name">{acc.name}</span>
             </button>
           )
@@ -135,12 +185,12 @@ export default function AccountsView(): React.ReactElement {
 
       {/* ── WebViews — one per account ── */}
       <div className="accounts-webview-wrap">
-        {accounts.map((acc) => (
+        {safeAccounts.map((acc) => (
           <webview
             key={acc.id}
-            ref={(el) => attachWebview(acc.id, el)}
+            ref={getWebviewRef(acc.id)}
             src={acc.url || PLATFORM_META[acc.platform].defaultUrl}
-            allowpopups
+            {...({ allowpopups: 'true' } as Record<string, string>)}
             useragent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             className={`accounts-webview${currentId === acc.id ? ' accounts-webview--active' : ''}`}
           />

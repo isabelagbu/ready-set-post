@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import PostNotesFullView from '../components/PostNotesFullView'
 import PostCreateModal from '../components/PostCreateModal'
 import PostPills from '../components/PostPills'
+import PostCardThumb from '../components/PostCardThumb'
 import Tip from '../components/Tip'
 import { pad2 } from '../posts/datetime'
 import {
@@ -62,6 +63,12 @@ function buildMonthGrid(viewMonth: Date): Cell[] {
   return cells
 }
 
+/** Scheduled time in the past = overdue (needs reschedule or mark posted). */
+function isScheduledOverdue(p: Post): boolean {
+  if (p.status !== 'scheduled' || !p.scheduledAt) return false
+  return new Date(p.scheduledAt).getTime() < Date.now()
+}
+
 function groupPostsByLocalDate(posts: Post[]): Map<string, Post[]> {
   const map = new Map<string, Post[]>()
   for (const p of posts) {
@@ -82,13 +89,24 @@ function groupPostsByLocalDate(posts: Post[]): Map<string, Post[]> {
 
 export default function CalendarView({
   posts,
-  setPosts
+  setPosts,
+  initialDateKey
 }: {
   posts: Post[]
   setPosts: React.Dispatch<React.SetStateAction<Post[]>>
+  /** When opening Calendar from Dashboard (e.g. Overdue), select this day and show its month. */
+  initialDateKey?: string
 }): React.ReactElement {
-  const [viewMonth, setViewMonth] = useState(() => startOfMonth(new Date()))
-  const [selectedKey, setSelectedKey] = useState<string | null>(() => dateKey(startOfToday()))
+  const [viewMonth, setViewMonth] = useState(() => {
+    if (initialDateKey) {
+      const [y, m] = initialDateKey.split('-').map(Number)
+      if (y && m) return new Date(y, m - 1, 1)
+    }
+    return startOfMonth(new Date())
+  })
+  const [selectedKey, setSelectedKey] = useState<string | null>(
+    () => initialDateKey ?? dateKey(startOfToday())
+  )
   const [notesModalPostId, setNotesModalPostId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
 
@@ -124,8 +142,9 @@ export default function CalendarView({
     body: string
     platforms: string[]
     accountIds: string[]
-    status: 'draft' | 'scheduled'
+    status: 'draft' | 'scheduled' | 'posted'
     scheduledAt: string | null
+    postedUrl: string | null
   }): void {
     const newPost: Post = {
       id: newPostId(),
@@ -134,8 +153,8 @@ export default function CalendarView({
       platforms: payload.platforms,
       accountIds: payload.accountIds,
       status: payload.status,
-      scheduledAt: payload.scheduledAt,
-      postedUrl: null,
+      scheduledAt: payload.status === 'scheduled' ? payload.scheduledAt : null,
+      postedUrl: payload.status === 'posted' ? payload.postedUrl : null,
       contentNotes: { ...EMPTY_CONTENT_NOTES },
       createdAt: new Date().toISOString()
     }
@@ -146,12 +165,14 @@ export default function CalendarView({
   // ── Drag-to-reschedule ────────────────────────────────────
   const [dragOverKey, setDragOverKey] = useState<string | null>(null)
   const draggingPostId = useRef<string | null>(null)
+  const [activeDragPostId, setActiveDragPostId] = useState<string | null>(null)
 
   function handleDrop(targetDateKey: string): void {
     const id = draggingPostId.current
     if (!id) return
     setDragOverKey(null)
     draggingPostId.current = null
+    setActiveDragPostId(null)
     setPosts((prev) =>
       prev.map((p) => {
         if (p.id !== id) return p
@@ -179,7 +200,7 @@ export default function CalendarView({
       <header className="page-header">
         <h1>Calendar</h1>
         <p className="sub">Select a day to view or create scheduled posts.</p>
-        <Tip>Click a date to open its post panel · Drag a post card onto a new date to reschedule it · Hover a date with posts to preview their titles</Tip>
+        <Tip>Click a date to open its post panel · Drag a post card onto a new date to reschedule it · Days with overdue posts show “overdue” under the post count · Hover to preview titles (overdue in red)</Tip>
       </header>
 
       <div className="calendar-layout">
@@ -207,6 +228,7 @@ export default function CalendarView({
             {grid.map((cell) => {
               const dayPosts = byDay.get(cell.dateKey) ?? []
               const count = dayPosts.length
+              const hasOverdue = dayPosts.some(isScheduledOverdue)
               const selected = selectedKey === cell.dateKey
               const today = cell.dateKey === todayKey
               return (
@@ -214,7 +236,7 @@ export default function CalendarView({
                   key={`${cell.dateKey}-${cell.inMonth}-${cell.dayNum}`}
                   type="button"
                   role="gridcell"
-                  className={`calendar-day${cell.inMonth ? '' : ' other-month'}${selected ? ' selected' : ''}${today ? ' today' : ''}${dragOverKey === cell.dateKey ? ' drag-over' : ''}`}
+                  className={`calendar-day${cell.inMonth ? '' : ' other-month'}${selected ? ' selected' : ''}${today ? ' today' : ''}${hasOverdue ? ' has-overdue' : ''}${dragOverKey === cell.dateKey ? ' drag-over' : ''}`}
                   onClick={() => setSelectedKey(cell.dateKey)}
                   onDragOver={(e) => { e.preventDefault(); setDragOverKey(cell.dateKey) }}
                   onDragLeave={() => setDragOverKey(null)}
@@ -226,9 +248,17 @@ export default function CalendarView({
                       <span className="calendar-day-badge" aria-label={`${count} scheduled`}>
                         {count}
                       </span>
+                      {hasOverdue && (
+                        <span className="calendar-day-overdue-label" aria-label="Has overdue">
+                          overdue
+                        </span>
+                      )}
                       <div className="calendar-day-tooltip" role="tooltip">
                         {dayPosts.map((p) => (
-                          <span key={p.id} className="calendar-day-tooltip-item">
+                          <span
+                            key={p.id}
+                            className={`calendar-day-tooltip-item${isScheduledOverdue(p) ? ' calendar-day-tooltip-item--overdue' : ''}`}
+                          >
                             {p.title || 'Untitled'}
                           </span>
                         ))}
@@ -248,7 +278,16 @@ export default function CalendarView({
               posts={byDay.get(selectedKey) ?? []}
               onOpenNotes={(postId) => setNotesModalPostId(postId)}
               onCreatePost={() => setShowCreate(true)}
-              onDragStart={(postId) => { draggingPostId.current = postId }}
+              draggingPostId={activeDragPostId}
+              onDragStart={(postId) => {
+                draggingPostId.current = postId
+                setActiveDragPostId(postId)
+              }}
+              onDragEnd={() => {
+                draggingPostId.current = null
+                setDragOverKey(null)
+                setActiveDragPostId(null)
+              }}
             />
           ) : (
             <p className="muted small">Select a day on the calendar.</p>
@@ -281,15 +320,19 @@ export default function CalendarView({
 function DayPanelPosts({
   dateKey,
   posts,
+  draggingPostId,
   onOpenNotes,
   onCreatePost,
-  onDragStart
+  onDragStart,
+  onDragEnd
 }: {
   dateKey: string
   posts: Post[]
+  draggingPostId: string | null
   onOpenNotes: (postId: string) => void
   onCreatePost: () => void
   onDragStart: (postId: string) => void
+  onDragEnd: () => void
 }): React.ReactElement {
   const label = useMemo(() => {
     const [y, m, d] = dateKey.split('-').map(Number)
@@ -322,13 +365,19 @@ function DayPanelPosts({
             {posts.map((p) => (
               <li
                 key={p.id}
-                className="card post day-calendar-post"
+                className={`card post day-calendar-post${isScheduledOverdue(p) ? ' day-calendar-post--overdue' : ''}${draggingPostId === p.id ? ' day-calendar-post--dragging' : ''}`}
                 draggable
                 onDragStart={(e) => {
                   e.dataTransfer.effectAllowed = 'move'
                   onDragStart(p.id)
                 }}
+                onDragEnd={onDragEnd}
               >
+                {isScheduledOverdue(p) && (
+                  <span className="day-calendar-post-overdue-label" aria-hidden="true">
+                    overdue
+                  </span>
+                )}
                 <div className="post-top">
                   <div className="post-top-meta">
                     <span className={`badge status-${p.status}`}>{p.status}</span>
@@ -359,11 +408,11 @@ function DayPanelPosts({
                 </div>
 
                 <div
-                  className="post-body-hit"
+                  className={`post-body-hit${p.status === 'posted' && p.postedUrl ? ' post-body-hit--thumb-stacked' : ''}`}
                   role="button"
                   tabIndex={0}
                   aria-haspopup="dialog"
-                  aria-label="Open full-screen script and production notes"
+                  aria-label="Open full details"
                   onClick={() => onOpenNotes(p.id)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -372,9 +421,14 @@ function DayPanelPosts({
                     }
                   }}
                 >
-                  <p className="day-post-title">{p.title}</p>
-                  <p className="body">{p.body}</p>
-                  <span className="muted small post-body-hit-hint">Click for full-screen notes</span>
+                  {p.status === 'posted' && p.postedUrl && (
+                    <PostCardThumb postedUrl={p.postedUrl} />
+                  )}
+                  <div className="post-body-hit-text">
+                    <p className="day-post-title">{p.title}</p>
+                    <p className="body">{p.body}</p>
+                    <span className="muted small post-body-hit-hint">Click for full details</span>
+                  </div>
                 </div>
 
                 {p.status === 'posted' && (

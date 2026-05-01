@@ -7,6 +7,7 @@ import PostNotesFullView from '../components/PostNotesFullView'
 import PostCreateModal from '../components/PostCreateModal'
 import PostPills from '../components/PostPills'
 import PostCardThumb from '../components/PostCardThumb'
+import PlatformLogoImg from '../components/PlatformLogoImg'
 import { useAccounts } from '../accounts/context'
 import { useEnabledPlatformFormLabels } from '../hooks/useEnabledPlatformFormLabels'
 import { ACCOUNT_PLATFORM_LABELS, PLATFORM_META, type Account } from '../accounts/types'
@@ -14,6 +15,7 @@ import {
   livePostUrl,
   newPostId,
   EMPTY_CONTENT_NOTES,
+  contentNotesText,
   type Post,
   type PostContentNotes,
   type Status
@@ -83,13 +85,14 @@ function matchesSearch(post: Post, query: string): boolean {
   if (post.title.toLowerCase().includes(q)) return true
   if (post.body.toLowerCase().includes(q)) return true
   if (post.platforms.some((p) => p.toLowerCase().includes(q))) return true
-  const n = post.contentNotes
-  return (
-    n.script.toLowerCase().includes(q) ||
-    n.hashtags.toLowerCase().includes(q) ||
-    n.caption.toLowerCase().includes(q) ||
-    n.other.toLowerCase().includes(q)
-  )
+  return contentNotesText(post.contentNotes).toLowerCase().includes(q)
+}
+
+function contentListPreviewText(post: Post): string {
+  const caption = post.contentNotes.caption.trim()
+  const hashtags = post.contentNotes.hashtags.trim()
+  const combined = [caption, hashtags].filter(Boolean).join('\n')
+  return combined || post.body
 }
 
 type SortOrder = 'newest' | 'oldest'
@@ -211,21 +214,24 @@ export default function ContentView({
 
   type FilterRow =
     | { kind: 'platform'; key: string; label: string }
-    | { kind: 'account'; key: string; label: string; color: string }
+    | { kind: 'account'; key: string; label: string }
 
   const filterRows: FilterRow[] = useMemo(
     () => [
       ...enabledFormPlatformLabels.flatMap((p): FilterRow[] => {
         const platformKey = ACCOUNT_PLATFORM_LABELS[p]
         const platformAccounts = platformKey ? accounts.filter((a) => a.platform === platformKey) : []
+        const accountRows =
+          platformAccounts.length <= 1
+            ? []
+            : platformAccounts.map((acc): FilterRow => ({
+                kind: 'account',
+                key: acc.id,
+                label: acc.name
+              }))
         return [
           { kind: 'platform', key: p, label: p },
-          ...platformAccounts.map((acc): FilterRow => ({
-            kind: 'account',
-            key: acc.id,
-            label: acc.name,
-            color: PLATFORM_META[platformKey!].color
-          }))
+          ...accountRows
         ]
       })
     ],
@@ -257,7 +263,7 @@ export default function ContentView({
       status: payload.status,
       scheduledAt: payload.status === 'scheduled' ? payload.scheduledAt : null,
       postedUrl: payload.status === 'posted' ? payload.postedUrl : null,
-      contentNotes: { ...EMPTY_CONTENT_NOTES },
+      contentNotes: { ...EMPTY_CONTENT_NOTES, caption: payload.body.trim() },
       createdAt: nowIso
     }
     setPosts((prev) => [post, ...prev])
@@ -313,11 +319,11 @@ export default function ContentView({
                     checked={filterSelected.has(row.key)}
                     onChange={() => toggleFilter(row.key)}
                   />
-                  {row.kind === 'account' && (
-                    <span
-                      className="filter-account-dot"
-                      style={{ background: row.color }}
-                      aria-hidden
+                  {row.kind === 'platform' && ACCOUNT_PLATFORM_LABELS[row.label] && (
+                    <PlatformLogoImg
+                      platform={ACCOUNT_PLATFORM_LABELS[row.label]}
+                      size={16}
+                      className="filter-platform-icon"
                     />
                   )}
                   <span>{row.label}</span>
@@ -459,7 +465,7 @@ export default function ContentView({
                       )}
                       <div className="post-body-hit-text">
                         <p className="post-title">{post.title}</p>
-                        <p className="body">{post.body}</p>
+                        <p className="body">{contentListPreviewText(post)}</p>
                         <span className="muted small post-body-hit-hint">
                           Click for full details
                         </span>

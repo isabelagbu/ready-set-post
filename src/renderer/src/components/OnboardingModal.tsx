@@ -66,7 +66,7 @@ const STEPS = [
       </svg>
     ),
     title: 'Add your accounts',
-    body: 'Go to Settings → Accounts to add your TikTok, Instagram, YouTube, LinkedIn, and X profiles. Each one gets its own live browser tab in the Accounts view.'
+    body: 'Go to Settings → Accounts to add your TikTok, Instagram, Threads, YouTube, LinkedIn, and X profiles. Each one gets its own live browser tab in the Accounts view.'
   },
   {
     icon: (
@@ -79,7 +79,7 @@ const STEPS = [
       </svg>
     ),
     title: 'Scripts, notes & sticky ideas',
-    body: 'Click any post to write a full script, hashtags, and captions. Use the Notepad\'s 10 tabs for free-form notes, and spawn colour-coded sticky notes for quick ideas.'
+    body: 'Click any post to keep all production notes in one big notes field. Use the Notepad\'s 10 tabs for free-form notes, and spawn colour-coded sticky notes for quick ideas.'
   }
 ]
 

@@ -7,6 +7,8 @@ import Tip from '../components/Tip'
 const NUM_TABS = 10
 const TABS_KEY = 'smm-notepad-tabs-v2'
 const ACTIVE_KEY = 'smm-notepad-active'
+const NOTEPAD_DEMO_VERSION_KEY = 'smm-notepad-demo-v'
+const NOTEPAD_DEMO_VERSION = 3
 
 type TabData = { name: string; text: string }
 
@@ -16,10 +18,66 @@ function defaultTabs(): TabData[] {
   return Array.from({ length: NUM_TABS }, (_, i) => ({ name: TAB_LABELS[i], text: '' }))
 }
 
+/** Shown when the notepad has never been saved — first install / demo. */
+function demoNotepadTabs(): TabData[] {
+  const tabs = defaultTabs()
+  tabs[0] = {
+    name: 'Main',
+    text: `Theme ideas
+-----------
+• Behind-the-algorithm myth busting (mini-series)
+• Co-host takeover Friday
+
+Hooks to try
+------------
+• "Stop scrolling if you hate editing."
+• "I tracked every hour for 30 days."`
+  }
+  tabs[1] = {
+    name: 'Hooks',
+    text: `Short shelf life (use soon):
+- nobody: … / me: …
+- "I was wrong about…" + one concrete fix`
+  }
+  return tabs
+}
+
+/** One-time refresh of empty notepad + stickies when demo content was updated. */
+function migrateNotepadDemoIfNeeded(): void {
+  try {
+    if (localStorage.getItem(NOTEPAD_DEMO_VERSION_KEY) === String(NOTEPAD_DEMO_VERSION)) return
+    const rawTabs = localStorage.getItem(TABS_KEY)
+    const rawStick = localStorage.getItem(STICKY_NOTES_KEY)
+    const tabsEmpty =
+      !rawTabs ||
+      (() => {
+        try {
+          const t = JSON.parse(rawTabs) as { text?: string }[]
+          return (
+            Array.isArray(t) &&
+            t.length === NUM_TABS &&
+            t.every((row) => !String(row?.text ?? '').trim())
+          )
+        } catch {
+          return true
+        }
+      })()
+    const stickEmpty = !rawStick || rawStick === '[]'
+    if (tabsEmpty && stickEmpty) {
+      localStorage.setItem(TABS_KEY, JSON.stringify(demoNotepadTabs()))
+      localStorage.setItem(STICKY_NOTES_KEY, JSON.stringify(demoStickyNotes()))
+    }
+    localStorage.setItem(NOTEPAD_DEMO_VERSION_KEY, String(NOTEPAD_DEMO_VERSION))
+  } catch {
+    /* ignore */
+  }
+}
+
 function readTabs(): TabData[] {
+  migrateNotepadDemoIfNeeded()
   try {
     const raw = localStorage.getItem(TABS_KEY)
-    if (!raw) return defaultTabs()
+    if (!raw) return demoNotepadTabs()
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed) || parsed.length !== NUM_TABS) return defaultTabs()
     return parsed.map((t, i) => ({
@@ -67,10 +125,40 @@ const SIDEBAR_GUARD_X = 64
 // Minimum y so stickies stay below the top window edge
 const SIDEBAR_GUARD_Y = 8
 
+function demoStickyNotes(): StickyNote[] {
+  return [
+    {
+      id: 'sticky-seed-a',
+      colorIdx: 0,
+      x: 120,
+      y: 100,
+      text: 'Film B-roll this week: coffee pour, timeline scrub, notification ping',
+      zIndex: 201
+    },
+    {
+      id: 'sticky-seed-b',
+      colorIdx: 2,
+      x: 420,
+      y: 180,
+      text: 'Ask followers: which platform gets the "long" cut first?',
+      zIndex: 202
+    },
+    {
+      id: 'sticky-seed-c',
+      colorIdx: 4,
+      x: 260,
+      y: 320,
+      text: 'Thumbnail A/B — export v2 before Tuesday',
+      zIndex: 203
+    }
+  ]
+}
+
 function readStickyNotes(): StickyNote[] {
+  migrateNotepadDemoIfNeeded()
   try {
     const raw = localStorage.getItem(STICKY_NOTES_KEY)
-    if (!raw) return []
+    if (!raw) return demoStickyNotes()
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     // Clamp any saved positions that are behind the sidebar

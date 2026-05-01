@@ -1,6 +1,7 @@
 import { useAccounts } from '../accounts/context'
-import { PLATFORM_META } from '../accounts/types'
+import { ACCOUNT_PLATFORM_LABELS, PLATFORM_META } from '../accounts/types'
 import type { Post } from '../posts/types'
+import PlatformLogoImg from './PlatformLogoImg'
 
 /**
  * Renders platform/account pills for a post.
@@ -9,6 +10,7 @@ import type { Post } from '../posts/types'
  */
 export default function PostPills({ post }: { post: Post }): React.ReactElement {
   const { accounts } = useAccounts()
+  const cleanHandle = (name: string): string => name.replace(/^@+/, '')
 
   if (post.accountIds.length > 0) {
     const postAccounts = post.accountIds
@@ -24,7 +26,8 @@ export default function PostPills({ post }: { post: Post }): React.ReactElement 
               className="pill pill--account"
               style={{ '--pill-color': PLATFORM_META[acc.platform].color } as React.CSSProperties}
             >
-              {acc.name}
+              <PlatformLogoImg platform={acc.platform} size={12} />
+              {cleanHandle(acc.name)}
             </span>
           ))}
         </div>
@@ -37,6 +40,9 @@ export default function PostPills({ post }: { post: Post }): React.ReactElement 
     <div className="pills">
       {post.platforms.map((p) => (
         <span key={p} className="pill">
+          {ACCOUNT_PLATFORM_LABELS[p] && (
+            <PlatformLogoImg platform={ACCOUNT_PLATFORM_LABELS[p]} size={12} />
+          )}
           {p}
         </span>
       ))}

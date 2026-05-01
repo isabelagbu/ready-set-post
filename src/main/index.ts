@@ -2,31 +2,47 @@ import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, Notification, shel
 import { join, resolve } from 'path'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
-import { getSeedPosts, SEED_SCRATCHPAD } from './seed-data'
+import {
+  DEMO_STORE_VERSION,
+  demoPostListOutOfSyncWithSeed,
+  getGenericSeedPosts,
+  getSeedPosts,
+  isDemoOnlyPostList,
+  SEED_SCRATCHPAD
+} from './seed-data'
 
 const APP_NAME = 'Ready Set Post'
 const APP_ICON_PATH = resolve(process.cwd(), 'build/icon.png')
 const ALLOWED_EXTERNAL_HOSTS = new Set([
   'instagram.com',
-  'www.instagram.com',
+  'threads.net',
   'tiktok.com',
-  'www.tiktok.com',
   'youtube.com',
-  'www.youtube.com',
   'linkedin.com',
-  'www.linkedin.com',
-  'x.com',
-  'www.x.com'
+  'x.com'
 ])
 
 app.setName(APP_NAME)
 
-function isSafeExternalUrl(rawUrl: string): boolean {
+function isAllowedHost(hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  for (const allowed of ALLOWED_EXTERNAL_HOSTS) {
+    if (host === allowed || host.endsWith(`.${allowed}`)) return true
+  }
+  return false
+}
+
+function toSafeExternalUrl(rawUrl: string): string | null {
   try {
-    const parsed = new URL(rawUrl)
-    return parsed.protocol === 'https:' && ALLOWED_EXTERNAL_HOSTS.has(parsed.hostname.toLowerCase())
+    const input = rawUrl.trim()
+    if (!input) return null
+    const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(input) ? input : `https://${input}`
+    const parsed = new URL(withScheme)
+    if (parsed.protocol !== 'https:') return null
+    if (!isAllowedHost(parsed.hostname)) return null
+    return parsed.toString()
   } catch {
-    return false
+    return null
   }
 }
 
@@ -67,22 +83,57 @@ function scratchpadPath(): string {
   return join(app.getPath('userData'), SCRATCHPAD_NAME)
 }
 
+async function persistStorePosts(posts: unknown[]): Promise<void> {
+  const dir = app.getPath('userData')
+  if (!existsSync(dir)) await mkdir(dir, { recursive: true })
+  const payload: { posts: unknown[]; demoStoreVersion?: number } = { posts }
+  if (isDemoOnlyPostList(posts)) {
+    payload.demoStoreVersion = DEMO_STORE_VERSION
+  }
+  await writeFile(storePath(), JSON.stringify(payload, null, 2), 'utf-8')
+}
+
 async function readStore(): Promise<{ posts: unknown[] }> {
   const p = storePath()
-  if (!existsSync(p)) return { posts: getSeedPosts() }
+  if (!existsSync(p)) {
+    const posts = getSeedPosts()
+    await persistStorePosts(posts)
+    return { posts }
+  }
   const raw = await readFile(p, 'utf-8')
   try {
-    const data = JSON.parse(raw) as { posts?: unknown[] }
-    return { posts: Array.isArray(data.posts) ? data.posts : [] }
+    const data = JSON.parse(raw) as { posts?: unknown[]; demoStoreVersion?: unknown }
+    const posts = Array.isArray(data.posts) ? data.posts : []
+    const ver = Number(data.demoStoreVersion)
+    const versionStale = !Number.isFinite(ver) || ver < DEMO_STORE_VERSION
+    const snapshotStale = demoPostListOutOfSyncWithSeed(posts)
+    if (isDemoOnlyPostList(posts) && (versionStale || snapshotStale)) {
+      const next = getSeedPosts()
+      await persistStorePosts(next)
+      return { posts: next }
+    }
+    return { posts }
   } catch {
     return { posts: [] }
   }
 }
 
 async function writeStore(data: { posts: unknown[] }): Promise<void> {
-  const dir = app.getPath('userData')
-  if (!existsSync(dir)) await mkdir(dir, { recursive: true })
-  await writeFile(storePath(), JSON.stringify(data, null, 2), 'utf-8')
+  await persistStorePosts(data.posts)
+}
+
+/** Overwrites the post store with the current built-in demo (from this main process). */
+async function replaceStoreWithDemoSeed(): Promise<{ posts: unknown[] }> {
+  const posts = getSeedPosts()
+  await persistStorePosts(posts)
+  return { posts }
+}
+
+/** Overwrites the post store with generic built-in demo data. */
+async function replaceStoreWithGenericDemoSeed(): Promise<{ posts: unknown[] }> {
+  const posts = getGenericSeedPosts()
+  await persistStorePosts(posts)
+  return { posts }
 }
 
 async function readScratchpad(): Promise<string> {
@@ -149,8 +200,9 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => mainWindow.show())
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    if (isSafeExternalUrl(details.url)) {
-      void shell.openExternal(details.url)
+    const safeUrl = toSafeExternalUrl(details.url)
+    if (safeUrl) {
+      void shell.openExternal(safeUrl)
     }
     return { action: 'deny' }
   })
@@ -176,6 +228,8 @@ app.whenReady().then(() => {
 
   ipcMain.handle('store:read', () => readStore())
   ipcMain.handle('store:write', (_, payload: { posts: unknown[] }) => writeStore(payload))
+  ipcMain.handle('store:replaceDemo', () => replaceStoreWithDemoSeed())
+  ipcMain.handle('store:replaceDemoGeneric', () => replaceStoreWithGenericDemoSeed())
   ipcMain.handle('clipboard:write', (_, text: string) => {
     clipboard.writeText(text ?? '')
     return true
@@ -191,6 +245,13 @@ app.whenReady().then(() => {
     if (Notification.isSupported()) {
       new Notification({ title, body }).show()
     }
+  })
+  ipcMain.handle('external:open', (_, rawUrl: string) => {
+    if (typeof rawUrl !== 'string') return false
+    const safeUrl = toSafeExternalUrl(rawUrl)
+    if (!safeUrl) return false
+    void shell.openExternal(safeUrl)
+    return true
   })
 
   createWindow()

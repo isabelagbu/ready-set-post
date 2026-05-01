@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useAccounts } from '../accounts/context'
-import { PLATFORM_META, PLATFORMS, type Platform } from '../accounts/types'
+import { PLATFORM_META, PLATFORMS, replaceAccountsWithSeed, type Platform } from '../accounts/types'
 import { ACCENT_PRESETS, type AccentPresetId, type AppTheme } from '../theme'
 import { isSoundEnabled, setSoundEnabled } from '../utils/sound'
 import { isHintsEnabled, setHintsEnabled } from '../utils/hints'
 import { isRemindersEnabled, setRemindersEnabled } from '../utils/reminders'
+import { isInAppAccountPreviewEnabled, setInAppAccountPreviewEnabled } from '../utils/accountsView'
 import { PLATFORM_OPTIONS } from '../posts/types'
 import { getEnabledPlatformFormLabels, setEnabledPlatformFormLabels } from '../utils/enabledPlatforms'
 import PlatformLogoImg from '../components/PlatformLogoImg'
@@ -45,6 +46,7 @@ export default function SettingsView({
   const [hintsOn, setHintsOn] = useState(() => isHintsEnabled())
   const [remindersOn, setRemindersOn] = useState(() => isRemindersEnabled())
   const [bannerOn, setBannerOn] = useState(() => isBannerEnabled())
+  const [accountsPreviewOn, setAccountsPreviewOn] = useState(() => isInAppAccountPreviewEnabled())
   const [formPlatformEnabled, setFormPlatformEnabled] = useState<Set<string>>(() => new Set(getEnabledPlatformFormLabels()))
 
   function toggleSound(): void {
@@ -71,6 +73,12 @@ export default function SettingsView({
     setBannerEnabled(next)
   }
 
+  function toggleAccountsPreview(): void {
+    const next = !accountsPreviewOn
+    setAccountsPreviewOn(next)
+    setInAppAccountPreviewEnabled(next)
+  }
+
   function toggleFormPlatform(label: (typeof PLATFORM_OPTIONS)[number]): void {
     const next = new Set(formPlatformEnabled)
     if (next.has(label)) {
@@ -90,6 +98,7 @@ export default function SettingsView({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editUrl, setEditUrl] = useState('')
+  const [confirmDemoReset, setConfirmDemoReset] = useState<'personal' | 'generic' | null>(null)
 
   function openAdd(platform: Platform): void {
     setAddingFor(platform)
@@ -121,6 +130,12 @@ export default function SettingsView({
     if (!editingId) return
     updateAccount(editingId, { name: editName.trim(), url: editUrl.trim() })
     setEditingId(null)
+  }
+
+  function openAccountInBrowser(url: string): void {
+    const u = url.trim()
+    if (!u) return
+    void window.api.openExternalUrl(u)
   }
 
   return (
@@ -291,7 +306,7 @@ export default function SettingsView({
         </section>
       </div>
 
-      <div className="settings-chapter settings-chapter--last" aria-labelledby="settings-chapter-platforms-accounts">
+      <div className="settings-chapter" aria-labelledby="settings-chapter-platforms-accounts">
         <h2 id="settings-chapter-platforms-accounts" className="settings-chapter-title">
           Platforms and accounts
         </h2>
@@ -299,6 +314,37 @@ export default function SettingsView({
           Choose which platforms show when you create or filter posts, then add account sign-ins to open in the
           Accounts tab.
         </p>
+
+        <section className="settings-section card settings-section--compact" aria-labelledby="settings-accounts-tab-heading">
+          <h3 id="settings-accounts-tab-heading" className="settings-section-title">
+            In-app account previews
+          </h3>
+          <p className="muted small settings-section-lead">
+            Use embedded previews in the Accounts page, or open profiles in your browser only.
+          </p>
+          <label className="settings-toggle-row">
+            <span className="settings-toggle-label">Enable in-app account previews</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={accountsPreviewOn}
+              className={`settings-toggle${accountsPreviewOn ? ' settings-toggle--on' : ''}`}
+              onClick={toggleAccountsPreview}
+              aria-label="Toggle in-app account previews"
+            >
+              <span className="settings-toggle-thumb" />
+            </button>
+          </label>
+          <div className="settings-reminder-test">
+            <button
+              type="button"
+              className="ghost small"
+              onClick={() => setConfirmDemoReset('personal')}
+            >
+              Load personal demo data
+            </button>
+          </div>
+        </section>
 
         <section
           className="settings-section card settings-section--compact"
@@ -411,6 +457,14 @@ export default function SettingsView({
                             <button
                               type="button"
                               className="settings-account-btn"
+                              onClick={() => openAccountInBrowser(acc.url || meta.defaultUrl)}
+                              aria-label={`Open ${acc.name} in browser`}
+                            >
+                              Open
+                            </button>
+                            <button
+                              type="button"
+                              className="settings-account-btn"
                               onClick={() => openEdit(acc.id, acc.name, acc.url)}
                               aria-label={`Edit ${acc.name}`}
                             >
@@ -478,6 +532,39 @@ export default function SettingsView({
       </section>
       </div>
 
+      <div className="settings-chapter settings-chapter--last" aria-labelledby="settings-chapter-workspace">
+        <h2 id="settings-chapter-workspace" className="settings-chapter-title">
+          Workspace
+        </h2>
+        <section className="settings-section card settings-section--compact" aria-labelledby="settings-demo-reset-heading">
+          <h3 id="settings-demo-reset-heading" className="settings-section-title">
+            Demo / sample posts
+          </h3>
+          <p className="muted small settings-section-lead">
+            Replace all posts in this app with the latest built-in demo set from your installed build. Use this if
+            content looks out of date after an update, or if you only ever used sample data and want a clean refresh.
+          </p>
+          <p className="muted small settings-section-lead">
+            If you are developing and edit <code>seed-data.ts</code>, fully quit the app and start{' '}
+            <code>npm run dev</code> again so the main process loads your changes.
+          </p>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => setConfirmDemoReset('personal')}
+          >
+            Load personal demo data…
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => setConfirmDemoReset('generic')}
+          >
+            Load generic demo data…
+          </button>
+        </section>
+      </div>
+
       <footer className="settings-footer">
         Designed &amp; developed by Isabel Agbu
       </footer>
@@ -494,6 +581,32 @@ export default function SettingsView({
           />
         )
       })()}
+
+      {confirmDemoReset && (
+        <ConfirmDialog
+          title={`Load ${confirmDemoReset === 'generic' ? 'generic' : 'personal'} demo data?`}
+          message="Current posts and demo accounts in this workspace will be replaced. This is intended for testing."
+          confirmLabel="Load demo data"
+          onConfirm={() => {
+            const target = confirmDemoReset
+            setConfirmDemoReset(null)
+            void (async () => {
+              try {
+                if (target === 'generic') {
+                  await window.api.replaceStoreWithGenericDemoSeed()
+                } else {
+                  await window.api.replaceStoreWithDemoSeed()
+                }
+                replaceAccountsWithSeed(target)
+                window.location.reload()
+              } catch {
+                window.alert('Could not load demo data. Try again or restart the app.')
+              }
+            })()
+          }}
+          onCancel={() => setConfirmDemoReset(null)}
+        />
+      )}
     </div>
   )
 }

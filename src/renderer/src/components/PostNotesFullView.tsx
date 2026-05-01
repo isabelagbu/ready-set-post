@@ -115,11 +115,7 @@ export default function PostNotesFullView({
                 )}
               </div>
 
-              <section className="post-notes-full-section" aria-label="Post copy">
-                <span className="label">Post</span>
-                <p className="post-notes-full-post-title">{post.title}</p>
-                <p className="post-notes-full-body">{post.body}</p>
-              </section>
+              <p className="post-notes-full-post-title">{post.title}</p>
 
               {post.status === 'posted' && livePostUrl(post) && (
                 <div className="post-notes-full-live">
@@ -131,6 +127,7 @@ export default function PostNotesFullView({
                 notes={post.contentNotes}
                 onChange={onNotesChange}
                 plain
+                captionReadOnly
               />
             </>
           )}

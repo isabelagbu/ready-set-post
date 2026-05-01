@@ -47,7 +47,6 @@ export default function PostEditorForm({
   const [noTime, setNoTime] = useState(() => !post.scheduledAt)
   const [status, setStatus] = useState<Status>(post.status)
   const [postedUrl, setPostedUrl] = useState(post.postedUrl ?? '')
-  const [isDraft, setIsDraft] = useState(post.status === 'draft' && !post.scheduledAt)
 
   function togglePlatform(p: string): void {
     setSelectedPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
@@ -60,7 +59,7 @@ export default function PostEditorForm({
   function save(): void {
     const trimmedTitle = title.trim()
     if (!trimmedTitle) return
-    if (!isDraft && status === 'scheduled' && !dateStr.trim()) return
+    if (status === 'scheduled' && !dateStr.trim()) return
 
     const accountDerivedPlatforms = [
       ...new Set(
@@ -72,10 +71,11 @@ export default function PostEditorForm({
     ]
     const allPlatforms = [...new Set([...selectedPlatforms, ...accountDerivedPlatforms])]
 
-    if (isDraft) {
+    if (status === 'draft') {
       onSave({
         title: trimmedTitle,
         body: body.trim() || post.body,
+        contentNotes: { ...post.contentNotes, caption: body.trim() || post.body },
         platforms: allPlatforms,
         accountIds: selectedAccountIds,
         scheduledAt: null,
@@ -85,8 +85,8 @@ export default function PostEditorForm({
       return
     }
     const scheduledAt =
-      isDraft || !dateStr.trim() ? null : scheduledAtFromParts(dateStr, noTime ? '' : timeStr)
-    if (!isDraft && status === 'scheduled' && !scheduledAt) return
+      !dateStr.trim() ? null : scheduledAtFromParts(dateStr, noTime ? '' : timeStr)
+    if (status === 'scheduled' && !scheduledAt) return
     let nextStatus = status
     if (scheduledAt && nextStatus === 'draft') nextStatus = 'scheduled'
     if (!scheduledAt && nextStatus === 'scheduled') nextStatus = 'draft'
@@ -94,6 +94,7 @@ export default function PostEditorForm({
     onSave({
       title: trimmedTitle,
       body: body.trim() || post.body,
+      contentNotes: { ...post.contentNotes, caption: body.trim() || post.body },
       platforms: allPlatforms,
       accountIds: selectedAccountIds,
       scheduledAt,
@@ -114,7 +115,10 @@ export default function PostEditorForm({
           required
         />
       </label>
-      <textarea value={body} onChange={(e) => setBody(e.target.value)} />
+      <label>
+        <span className="label">Caption + Hashtags</span>
+        <textarea value={body} onChange={(e) => setBody(e.target.value)} />
+      </label>
       <div className="grow">
         <span className="label" style={{ display: 'block', marginBottom: 6 }}>When</span>
         <ScheduleDateTimeFields
@@ -128,24 +132,8 @@ export default function PostEditorForm({
             setNoTime(v)
             if (v) setTimeStr('')
           }}
-          disabled={isDraft}
+          disabled={status === 'draft'}
         />
-      </div>
-
-      {/* Draft toggle */}
-      <div className="row platforms">
-        <label className="chip chip-draft">
-          <input
-            type="checkbox"
-            checked={isDraft}
-            onChange={(e) => {
-              const on = e.target.checked
-              setIsDraft(on)
-              if (on) { setDateStr(''); setTimeStr(''); setNoTime(true); setStatus('draft') }
-            }}
-          />
-          Draft
-        </label>
       </div>
 
       {/* Platform / account picker — one row per platform */}
@@ -201,15 +189,22 @@ export default function PostEditorForm({
         <span className="label">Status</span>
         <select
           value={status}
-          disabled={isDraft}
-          onChange={(e) => setStatus(e.target.value as Status)}
+          onChange={(e) => {
+            const next = e.target.value as Status
+            setStatus(next)
+            if (next === 'draft') {
+              setDateStr('')
+              setTimeStr('')
+              setNoTime(true)
+            }
+          }}
         >
           <option value="draft">draft</option>
           <option value="scheduled">scheduled</option>
           <option value="posted">posted</option>
         </select>
       </label>
-      {!isDraft && status === 'posted' && (
+      {status !== 'draft' && status === 'posted' && (
         <label>
           <span className="label">Live post URL</span>
           <input

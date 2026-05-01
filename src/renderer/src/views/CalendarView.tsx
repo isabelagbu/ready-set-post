@@ -1,13 +1,13 @@
 import { useMemo, useRef, useState } from 'react'
 import PostNotesFullView from '../components/PostNotesFullView'
 import PostCreateModal from '../components/PostCreateModal'
+import PostEditorForm from '../components/PostEditorForm'
 import PostPills from '../components/PostPills'
 import PostCardThumb from '../components/PostCardThumb'
 import Tip from '../components/Tip'
 import { pad2 } from '../posts/datetime'
 import {
   livePostUrl,
-  postHasContentNotes,
   newPostId,
   EMPTY_CONTENT_NOTES,
   type Post,
@@ -81,7 +81,7 @@ function groupPostsByLocalDate(posts: Post[]): Map<string, Post[]> {
     list.sort((a, b) => {
       const ta = a.scheduledAt ? new Date(a.scheduledAt).getTime() : 0
       const tb = b.scheduledAt ? new Date(b.scheduledAt).getTime() : 0
-      return ta - tb
+      return tb - ta
     })
   }
   return map
@@ -155,7 +155,7 @@ export default function CalendarView({
       status: payload.status,
       scheduledAt: payload.status === 'scheduled' ? payload.scheduledAt : null,
       postedUrl: payload.status === 'posted' ? payload.postedUrl : null,
-      contentNotes: { ...EMPTY_CONTENT_NOTES },
+      contentNotes: { ...EMPTY_CONTENT_NOTES, caption: payload.body.trim() },
       createdAt: new Date().toISOString()
     }
     setPosts((prev) => [...prev, newPost])
@@ -180,6 +180,14 @@ export default function CalendarView({
         const existing = p.scheduledAt ? new Date(p.scheduledAt) : new Date()
         const [y, m, d] = targetDateKey.split('-').map(Number)
         const next = new Date(y, m - 1, d, existing.getHours(), existing.getMinutes())
+        // If dropping onto today would still land in the past, bump slightly forward
+        // so the item no longer remains overdue immediately after rescheduling.
+        const now = new Date()
+        const isTodayTarget =
+          y === now.getFullYear() && m === now.getMonth() + 1 && d === now.getDate()
+        if (isTodayTarget && next.getTime() <= now.getTime()) {
+          next.setTime(now.getTime() + 5 * 60_000)
+        }
         return { ...p, scheduledAt: next.toISOString() }
       })
     )
@@ -276,6 +284,9 @@ export default function CalendarView({
             <DayPanelPosts
               dateKey={selectedKey}
               posts={byDay.get(selectedKey) ?? []}
+              onUpdatePost={(id, patch) =>
+                setPosts((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
+              }
               onOpenNotes={(postId) => setNotesModalPostId(postId)}
               onCreatePost={() => setShowCreate(true)}
               draggingPostId={activeDragPostId}
@@ -321,6 +332,7 @@ function DayPanelPosts({
   dateKey,
   posts,
   draggingPostId,
+  onUpdatePost,
   onOpenNotes,
   onCreatePost,
   onDragStart,
@@ -329,11 +341,13 @@ function DayPanelPosts({
   dateKey: string
   posts: Post[]
   draggingPostId: string | null
+  onUpdatePost: (id: string, patch: Partial<Post>) => void
   onOpenNotes: (postId: string) => void
   onCreatePost: () => void
   onDragStart: (postId: string) => void
   onDragEnd: () => void
 }): React.ReactElement {
+  const [editingId, setEditingId] = useState<string | null>(null)
   const label = useMemo(() => {
     const [y, m, d] = dateKey.split('-').map(Number)
     if (!y || !m || !d) return dateKey
@@ -394,11 +408,6 @@ function DayPanelPosts({
                         })}
                       </span>
                     )}
-                    {postHasContentNotes(p) && (
-                      <span className="badge post-notes-indicator" title="Has production notes">
-                        Notes
-                      </span>
-                    )}
                   </div>
                   {(p.platforms.length > 0 || p.accountIds.length > 0) && (
                     <div className="post-top-pills" aria-label="Platforms">
@@ -407,50 +416,72 @@ function DayPanelPosts({
                   )}
                 </div>
 
-                <div
-                  className={`post-body-hit${p.status === 'posted' && p.postedUrl ? ' post-body-hit--thumb-stacked' : ''}`}
-                  role="button"
-                  tabIndex={0}
-                  aria-haspopup="dialog"
-                  aria-label="Open full details"
-                  onClick={() => onOpenNotes(p.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      onOpenNotes(p.id)
-                    }
-                  }}
-                >
-                  {p.status === 'posted' && p.postedUrl && (
-                    <PostCardThumb postedUrl={p.postedUrl} />
-                  )}
-                  <div className="post-body-hit-text">
-                    <p className="day-post-title">{p.title}</p>
-                    <p className="body">{p.body}</p>
-                    <span className="muted small post-body-hit-hint">Click for full details</span>
-                  </div>
-                </div>
-
-                {p.status === 'posted' && (
-                  <p className="post-live-link-row">
-                    <a
-                      href={livePostUrl(p)!}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="post-live-link"
-                      title={
-                        !p.postedUrl?.trim()
-                          ? 'Placeholder — set a real URL in Content'
-                          : undefined
-                      }
+                {editingId === p.id ? (
+                  <PostEditorForm
+                    post={p}
+                    onSave={(patch) => {
+                      onUpdatePost(p.id, patch)
+                      setEditingId(null)
+                    }}
+                    onCancel={() => setEditingId(null)}
+                  />
+                ) : (
+                  <>
+                    <div
+                      className={`post-body-hit${p.status === 'posted' && p.postedUrl ? ' post-body-hit--thumb-stacked' : ''}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-haspopup="dialog"
+                      aria-label="Open full details"
+                      onClick={() => onOpenNotes(p.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          onOpenNotes(p.id)
+                        }
+                      }}
                     >
-                      View live post
-                    </a>
-                  </p>
-                )}
+                      {p.status === 'posted' && p.postedUrl && (
+                        <PostCardThumb postedUrl={p.postedUrl} />
+                      )}
+                      <div className="post-body-hit-text">
+                        <p className="day-post-title">{p.title}</p>
+                        <p className="body">{p.body}</p>
+                        <span className="muted small post-body-hit-hint">Click for full details</span>
+                      </div>
+                    </div>
 
-                {p.platforms.length === 0 && p.accountIds.length === 0 && (
-                  <p className="muted small post-no-platforms">No platform tags</p>
+                    {p.status === 'posted' && (
+                      <p className="post-live-link-row">
+                        <a
+                          href={livePostUrl(p)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="post-live-link"
+                          title={
+                            !p.postedUrl?.trim()
+                              ? 'Placeholder — set a real URL in Content'
+                              : undefined
+                          }
+                        >
+                          View live post
+                        </a>
+                      </p>
+                    )}
+
+                    {p.platforms.length === 0 && p.accountIds.length === 0 && (
+                      <p className="muted small post-no-platforms">No platform tags</p>
+                    )}
+                    <div className="row actions" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => setEditingId(p.id)}
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  </>
                 )}
               </li>
             ))}

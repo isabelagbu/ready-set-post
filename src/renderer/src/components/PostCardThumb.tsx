@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 function youTubeThumbnail(url: string): string | null {
   const m = url.match(/(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/)([^&?\s/]+)/)
@@ -8,11 +8,10 @@ function youTubeThumbnail(url: string): string | null {
 export default function PostCardThumb({ postedUrl }: { postedUrl: string }): React.ReactElement | null {
   const [thumb, setThumb] = useState<string | null>(null)
   const [err, setErr] = useState(false)
-  const fetched = useRef(false)
 
   useEffect(() => {
-    if (fetched.current) return
-    fetched.current = true
+    setThumb(null)
+    setErr(false)
     const yt = youTubeThumbnail(postedUrl)
     if (yt) { setThumb(yt); return }
     if (/tiktok\.com/.test(postedUrl)) {

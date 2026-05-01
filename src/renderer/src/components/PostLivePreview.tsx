@@ -9,6 +9,7 @@ function detectPlatform(url: string): string {
   if (/youtube\.com|youtu\.be/.test(url)) return 'YouTube'
   if (/tiktok\.com/.test(url)) return 'TikTok'
   if (/instagram\.com/.test(url)) return 'Instagram'
+  if (/threads\.net/.test(url)) return 'Threads'
   if (/linkedin\.com/.test(url)) return 'LinkedIn'
   if (/twitter\.com|x\.com/.test(url)) return 'X'
   return 'Link'

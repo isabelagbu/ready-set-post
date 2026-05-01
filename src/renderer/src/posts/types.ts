@@ -5,17 +5,27 @@ export const DUMMY_POSTED_URL = 'https://example.com/social-post-placeholder'
 
 /** Per-post production notes (Content view). */
 export type PostContentNotes = {
-  script: string
-  hashtags: string
   caption: string
-  other: string
+  hashtags: string
+  notes: string
 }
 
 export const EMPTY_CONTENT_NOTES: PostContentNotes = {
-  script: '',
-  hashtags: '',
   caption: '',
-  other: ''
+  hashtags: '',
+  notes: ''
+}
+
+export function contentNotesText(notes: PostContentNotes | Record<string, unknown> | null | undefined): string {
+  if (!notes || typeof notes !== 'object' || Array.isArray(notes)) return ''
+  const o = notes as Record<string, unknown>
+  const n = typeof o.notes === 'string' ? o.notes.trim() : ''
+  const caption = typeof o.caption === 'string' ? o.caption.trim() : ''
+  const hashtags = typeof o.hashtags === 'string' ? o.hashtags.trim() : ''
+  if (n.length > 0 || caption || hashtags) return [caption, hashtags, n].filter(Boolean).join('\n\n')
+  const script = typeof o.script === 'string' ? o.script.trim() : ''
+  const other = typeof o.other === 'string' ? o.other.trim() : ''
+  return [caption, hashtags, script, other].filter(Boolean).join('\n\n')
 }
 
 function parseContentNotes(raw: unknown): PostContentNotes {
@@ -23,12 +33,19 @@ function parseContentNotes(raw: unknown): PostContentNotes {
     return { ...EMPTY_CONTENT_NOTES }
   }
   const o = raw as Record<string, unknown>
-  const s = (k: string): string => (typeof o[k] === 'string' ? o[k] : '')
+  const s = (k: string): string => (typeof o[k] === 'string' ? o[k].trim() : '')
+  let caption = s('caption')
+  const hashtags = s('hashtags')
+  let notes = s('notes') || [s('script'), s('other')].filter(Boolean).join('\n\n')
+  // If legacy data only has the old unified notes text, show it in Caption + Hashtags.
+  if (!caption && !hashtags && notes) {
+    caption = notes
+    notes = ''
+  }
   return {
-    script: s('script'),
-    hashtags: s('hashtags'),
-    caption: s('caption'),
-    other: s('other')
+    caption,
+    hashtags,
+    notes
   }
 }
 
@@ -38,7 +55,7 @@ export type Post = {
   title: string
   body: string
   platforms: string[]
-  /** IDs of specific accounts this post is targeted to (TikTok/Instagram/YouTube). */
+  /** IDs of specific accounts this post is targeted to (e.g. TikTok/Instagram/Threads/YouTube). */
   accountIds: string[]
   status: Status
   scheduledAt: string | null
@@ -55,12 +72,12 @@ export function livePostUrl(post: Post): string | null {
 }
 
 export function postHasContentNotes(post: Post): boolean {
-  const n = post.contentNotes
-  return [n.script, n.hashtags, n.caption, n.other].some((s) => s.trim().length > 0)
+  return contentNotesText(post.contentNotes).length > 0
 }
 
 export const PLATFORM_OPTIONS = [
   'Instagram',
+  'Threads',
   'TikTok',
   'YouTube',
   'X',

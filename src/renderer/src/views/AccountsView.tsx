@@ -3,7 +3,7 @@ import { useAccounts } from '../accounts/context'
 import { PLATFORM_META } from '../accounts/types'
 import PlatformLogoImg from '../components/PlatformLogoImg'
 
-export default function AccountsView(): React.ReactElement {
+export default function AccountsView({ previewEnabled = true }: { previewEnabled?: boolean }): React.ReactElement {
   const { accounts } = useAccounts()
   const safeAccounts = useMemo(
     () => accounts.filter((a) => Boolean(PLATFORM_META[a.platform])),
@@ -104,6 +104,13 @@ export default function AccountsView(): React.ReactElement {
   const currentId = activeAccount?.id ?? null
   const isLoading = currentId ? loadingIds.has(currentId) : false
 
+  function openActiveInBrowser(): void {
+    if (!activeAccount) return
+    const url = (activeAccount.url || PLATFORM_META[activeAccount.platform].defaultUrl).trim()
+    if (!url) return
+    void window.api.openExternalUrl(url)
+  }
+
   if (safeAccounts.length === 0) {
     return (
       <div className="accounts-view accounts-view--empty">
@@ -113,9 +120,42 @@ export default function AccountsView(): React.ReactElement {
           </svg>
           <h2>No accounts yet</h2>
           <p className="muted">
-            Go to <strong>Settings → Accounts</strong> to add your TikTok, Instagram, or YouTube accounts.
+            Go to <strong>Settings → Accounts</strong> to add your TikTok, Instagram, Threads, or YouTube accounts.
             Each account will appear as its own browser tab here.
           </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!previewEnabled) {
+    return (
+      <div className="accounts-view accounts-view--empty">
+        <div className="accounts-empty-state accounts-empty-state--preview-off">
+          <h2>In-app account previews are off</h2>
+          <p className="muted">
+            Turn previews on in Settings if you want embedded account tabs. You can still open each account in your browser.
+          </p>
+          <ul className="accounts-fallback-list">
+            {safeAccounts.map((acc) => (
+              <li key={acc.id} className="accounts-fallback-item card">
+                <div className="accounts-fallback-main">
+                  <PlatformLogoImg platform={acc.platform} size={16} />
+                  <strong className="accounts-fallback-name">{acc.name}</strong>
+                </div>
+                <span className="muted small accounts-fallback-url">
+                  {acc.url || PLATFORM_META[acc.platform].defaultUrl}
+                </span>
+                <button
+                  type="button"
+                  className="ghost accounts-fallback-open"
+                  onClick={() => void window.api.openExternalUrl(acc.url || PLATFORM_META[acc.platform].defaultUrl)}
+                >
+                  Open
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     )
@@ -143,6 +183,14 @@ export default function AccountsView(): React.ReactElement {
 
         {/* Nav controls on the right */}
         <div className="accounts-nav">
+          <button
+            type="button"
+            className="accounts-nav-btn"
+            title="Open in browser"
+            onClick={openActiveInBrowser}
+          >
+            ↗
+          </button>
           <button
             type="button"
             className="accounts-nav-btn"

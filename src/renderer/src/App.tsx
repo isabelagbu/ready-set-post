@@ -14,6 +14,7 @@ import {
   type AccentPresetId,
   type AppTheme
 } from './theme'
+import { isInAppAccountPreviewEnabled } from './utils/accountsView'
 import CalendarView from './views/CalendarView'
 import ContentView from './views/ContentView'
 import DashboardView from './views/DashboardView'
@@ -69,6 +70,7 @@ export default function App(): React.ReactElement {
   const [contentStatusFilter, setContentStatusFilter] = useState<'draft' | 'scheduled' | 'posted' | undefined>(undefined)
   const [calendarInitialDateKey, setCalendarInitialDateKey] = useState<string | undefined>(undefined)
   const [contentOpenPostId, setContentOpenPostId] = useState<string | undefined>(undefined)
+  const [accountsPreviewOn, setAccountsPreviewOn] = useState(() => isInAppAccountPreviewEnabled())
 
   function navigateTo(
     id: NavId,
@@ -142,6 +144,14 @@ export default function App(): React.ReactElement {
   }, [theme, accent])
 
   useEffect(() => {
+    function onAccountsPreviewChange(e: Event): void {
+      setAccountsPreviewOn((e as CustomEvent<boolean>).detail)
+    }
+    window.addEventListener('smm-accounts-preview-change', onAccountsPreviewChange)
+    return () => window.removeEventListener('smm-accounts-preview-change', onAccountsPreviewChange)
+  }, [])
+
+  useEffect(() => {
     if (active !== 'content') {
       setContentOpenPostId(undefined)
       setContentSection(undefined)
@@ -211,7 +221,7 @@ export default function App(): React.ReactElement {
           />
         )}
         {active === 'notes' && <NotesView />}
-        {active === 'accounts' && <AccountsView />}
+        {active === 'accounts' && <AccountsView previewEnabled={accountsPreviewOn} />}
         {active === 'settings' && (
           <SettingsView
             theme={theme}

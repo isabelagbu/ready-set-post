@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { useAccounts } from '../accounts/context'
-import { PLATFORM_META, PLATFORMS, type Platform } from '../accounts/types'
+import { PLATFORM_META, PLATFORMS, type Account, type Platform } from '../accounts/types'
+import {
+  isYouTubeChannelUploadAuthorized,
+  resolveYouTubeChannelIdForAccount,
+  youtubeChannelLabel
+} from '../accounts/youtube-channel'
 import { ACCENT_PRESETS, type AccentPresetId, type AppTheme } from '../theme'
 import { isSoundEnabled, setSoundEnabled } from '../utils/sound'
 import { isHintsEnabled, setHintsEnabled } from '../utils/hints'
@@ -24,6 +29,11 @@ type DriveSyncStatus = {
   hasPendingChanges: boolean
 }
 
+type YouTubeAuthStatus = {
+  connected: boolean
+  credentialsConfigured: boolean
+  lastError: string | null
+}
 const BANNER_ENABLED_KEY = 'smm-dash-banner-enabled'
 export function isBannerEnabled(): boolean {
   try {
@@ -41,6 +51,7 @@ const APPEARANCE: { id: AppTheme; label: string }[] = [
   { id: 'dark', label: 'Dark' },
   { id: 'system', label: 'System' }
 ]
+const POSTING_PERMISSION_PLATFORMS = new Set<Platform>(['youtube', 'instagram', 'tiktok'])
 
 export default function SettingsView({
   theme,
@@ -53,8 +64,10 @@ export default function SettingsView({
   onThemeChange: (theme: AppTheme) => void
   onAccentChange: (accent: AccentPresetId) => void
 }): React.ReactElement {
-  const { accounts, addAccount, updateAccount, removeAccount } = useAccounts()
+  const { accounts, addAccount, updateAccount, linkYouTubePostingFromChannels, removeAccount } =
+    useAccounts()
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null)
+  const [confirmPostingConnectId, setConfirmPostingConnectId] = useState<string | null>(null)
   const [soundOn, setSoundOn] = useState(() => isSoundEnabled())
   const [hintsOn, setHintsOn] = useState(() => isHintsEnabled())
   const [remindersOn, setRemindersOn] = useState(() => isRemindersEnabled())
@@ -129,6 +142,45 @@ export default function SettingsView({
   const [driveBusy, setDriveBusy] = useState<'connect' | 'disconnect' | 'sync' | null>(null)
   const [driveActionError, setDriveActionError] = useState<string | null>(null)
   const [confirmDriveDisconnect, setConfirmDriveDisconnect] = useState(false)
+  const [confirmClearSessions, setConfirmClearSessions] = useState(false)
+  const [youtubeStatus, setYouTubeStatus] = useState<YouTubeAuthStatus | null>(null)
+  const [youtubeBusy, setYouTubeBusy] = useState<'connect' | 'disconnect' | null>(null)
+  const [youtubeActionError, setYouTubeActionError] = useState<string | null>(null)
+  const [authorizedYouTubeChannelIds, setAuthorizedYouTubeChannelIds] = useState<string[]>([])
+  const [youtubeRowBusyId, setYoutubeRowBusyId] = useState<string | null>(null)
+  const [youtubeChannelsListed, setYoutubeChannelsListed] = useState<
+    { id: string; title: string; customUrl: string }[]
+  >([])
+
+  function hasYouTubeBridge(): boolean {
+    const api = window.api as unknown as Record<string, unknown>
+    return (
+      typeof api.youtubeGetStatus === 'function' &&
+      typeof api.youtubeConnect === 'function' &&
+      typeof api.youtubeDisconnect === 'function' &&
+      typeof api.youtubeListChannels === 'function' &&
+      typeof api.youtubeAuthorizeChannel === 'function' &&
+      typeof api.youtubeLinkAccountBySignIn === 'function' &&
+      typeof api.youtubeGetAuthorizedChannelIds === 'function'
+    )
+  }
+
+  async function refreshAuthorizedYouTubeChannels(): Promise<void> {
+    if (!hasYouTubeBridge()) return
+    try {
+      const ids = await window.api.youtubeGetAuthorizedChannelIds()
+      setAuthorizedYouTubeChannelIds(ids)
+      try {
+        const channels = await window.api.youtubeListChannels()
+        setYoutubeChannelsListed(channels)
+      } catch {
+        setYoutubeChannelsListed([])
+      }
+    } catch {
+      setAuthorizedYouTubeChannelIds([])
+      setYoutubeChannelsListed([])
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -146,12 +198,52 @@ export default function SettingsView({
     }
   }, [])
 
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      if (!hasYouTubeBridge()) {
+        setYouTubeStatus({
+          connected: false,
+          credentialsConfigured: false,
+          lastError: 'YouTube bridge not loaded. Restart app/dev process.'
+        })
+        return
+      }
+      const status = await window.api.youtubeGetStatus()
+      if (!alive) return
+      setYouTubeStatus(status)
+      if (status.connected) {
+        await refreshAuthorizedYouTubeChannels()
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!youtubeStatus?.connected || !hasYouTubeBridge()) return
+    void autoLinkYouTubePostingAccounts().catch(() => {
+      /* background link on load — errors surface when publishing */
+    })
+    void refreshAuthorizedYouTubeChannels()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run when YouTube auth becomes available
+  }, [youtubeStatus?.connected])
+
+  async function autoLinkYouTubePostingAccounts(): Promise<void> {
+    if (!hasYouTubeBridge()) return
+    const status = await window.api.youtubeGetStatus()
+    if (!status.connected) return
+    const channels = await window.api.youtubeListChannels()
+    linkYouTubePostingFromChannels(channels)
+  }
+
   async function connectDrive(): Promise<void> {
     setDriveBusy('connect')
     setDriveActionError(null)
     try {
-      const status = await window.api.driveConnect()
-      setDriveStatus(status)
+      const drive = await window.api.driveConnect()
+      setDriveStatus(drive)
     } catch (err) {
       setDriveActionError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -163,13 +255,42 @@ export default function SettingsView({
     setDriveBusy('disconnect')
     setDriveActionError(null)
     try {
-      const status = await window.api.driveDisconnect()
-      setDriveStatus(status)
+      const drive = await window.api.driveDisconnect()
+      setDriveStatus(drive)
     } catch (err) {
       setDriveActionError(err instanceof Error ? err.message : String(err))
     } finally {
       setDriveBusy(null)
       setConfirmDriveDisconnect(false)
+    }
+  }
+
+  async function connectYouTubeDiscovery(): Promise<void> {
+    setYouTubeBusy('connect')
+    setYouTubeActionError(null)
+    try {
+      const youtube = await window.api.youtubeConnect()
+      setYouTubeStatus(youtube)
+      await autoLinkYouTubePostingAccounts()
+      await refreshAuthorizedYouTubeChannels()
+    } catch (err) {
+      setYouTubeActionError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setYouTubeBusy(null)
+    }
+  }
+
+  async function disconnectAllYouTube(): Promise<void> {
+    setYouTubeBusy('disconnect')
+    setYouTubeActionError(null)
+    try {
+      const youtube = await window.api.youtubeDisconnect()
+      setYouTubeStatus(youtube)
+      setAuthorizedYouTubeChannelIds([])
+    } catch (err) {
+      setYouTubeActionError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setYouTubeBusy(null)
     }
   }
 
@@ -183,6 +304,44 @@ export default function SettingsView({
       setDriveActionError(err instanceof Error ? err.message : String(err))
     } finally {
       setDriveBusy(null)
+    }
+  }
+
+  async function clearAccountSessions(): Promise<void> {
+    try {
+      await window.api.clearAccountSessions()
+      setConfirmClearSessions(false)
+      window.alert('In-app social sessions were cleared for this device.')
+    } catch (err) {
+      window.alert(
+        `Could not clear account sessions: ${err instanceof Error ? err.message : String(err)}`
+      )
+    }
+  }
+
+  async function connectYouTube(): Promise<void> {
+    setYouTubeBusy('connect')
+    setYouTubeActionError(null)
+    try {
+      const status = await window.api.youtubeConnect()
+      setYouTubeStatus(status)
+    } catch (err) {
+      setYouTubeActionError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setYouTubeBusy(null)
+    }
+  }
+
+  async function disconnectYouTube(): Promise<void> {
+    setYouTubeBusy('disconnect')
+    setYouTubeActionError(null)
+    try {
+      const status = await window.api.youtubeDisconnect()
+      setYouTubeStatus(status)
+    } catch (err) {
+      setYouTubeActionError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setYouTubeBusy(null)
     }
   }
 
@@ -204,14 +363,18 @@ export default function SettingsView({
 
   function submitAdd(): void {
     if (!addingFor || !newName.trim()) return
+    const platform = addingFor
     addAccount(
-      addingFor,
+      platform,
       newName.trim(),
-      newUrl.trim() || PLATFORM_META[addingFor].defaultUrl
+      newUrl.trim() || PLATFORM_META[platform].defaultUrl
     )
     setAddingFor(null)
     setNewName('')
     setNewUrl('')
+    if (platform === 'youtube' && youtubeStatus?.connected) {
+      void autoLinkYouTubePostingAccounts().catch(() => {})
+    }
   }
 
   function openEdit(id: string, name: string, url: string): void {
@@ -223,8 +386,12 @@ export default function SettingsView({
 
   function submitEdit(): void {
     if (!editingId) return
+    const acc = accounts.find((a) => a.id === editingId)
     updateAccount(editingId, { name: editName.trim(), url: editUrl.trim() })
     setEditingId(null)
+    if (acc?.platform === 'youtube' && youtubeStatus?.connected) {
+      void autoLinkYouTubePostingAccounts().catch(() => {})
+    }
   }
 
   function openAccountInBrowser(url: string): void {
@@ -233,11 +400,133 @@ export default function SettingsView({
     void window.api.openExternalUrl(u)
   }
 
+  async function connectYouTubePostingForAccount(acc: Account): Promise<void> {
+    if (!hasYouTubeBridge()) {
+      setYouTubeActionError('YouTube bridge not loaded. Restart the app (npm run dev).')
+      return
+    }
+    setYoutubeRowBusyId(acc.id)
+    setYouTubeActionError(null)
+    try {
+      let channelId: string | null = null
+      let channelTitle: string | null = null
+
+      try {
+        const channels = await window.api.youtubeListChannels()
+        channelId = resolveYouTubeChannelIdForAccount(acc.name, acc.url, channels)
+        if (channelId) {
+          const ch = channels.find((c) => c.id === channelId)
+          channelTitle = ch?.title ?? null
+          const authorized = await window.api.youtubeGetAuthorizedChannelIds()
+          if (!isYouTubeChannelUploadAuthorized(channelId, authorized)) {
+            await window.api.youtubeAuthorizeChannel(channelId)
+          }
+        }
+      } catch {
+        /* channel discovery not available — use per-row sign-in */
+      }
+
+      if (!channelId) {
+        const linked = await window.api.youtubeLinkAccountBySignIn({
+          name: acc.name,
+          url: acc.url || PLATFORM_META.youtube.defaultUrl
+        })
+        channelId = linked.id
+        channelTitle = linked.title
+      }
+
+      updateAccount(acc.id, {
+        youtubeChannelId: channelId,
+        postingPermissions: { ...acc.postingPermissions, canPublish: true, manualPostingDisconnect: false }
+      })
+      await refreshAuthorizedYouTubeChannels()
+      void channelTitle
+    } catch (err) {
+      setYouTubeActionError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setYoutubeRowBusyId(null)
+    }
+  }
+
+  async function authorizeYouTubeChannelForAccount(acc: Account): Promise<void> {
+    if (!acc.youtubeChannelId) {
+      setYouTubeActionError('Use Connect for posting first to link this row to a channel.')
+      return
+    }
+    setYoutubeRowBusyId(acc.id)
+    setYouTubeActionError(null)
+    try {
+      await window.api.youtubeAuthorizeChannel(acc.youtubeChannelId)
+      await refreshAuthorizedYouTubeChannels()
+    } catch (err) {
+      setYouTubeActionError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setYoutubeRowBusyId(null)
+    }
+  }
+
+  function getPostingPermissionSummary(platform: Platform): string {
+    if (platform === 'youtube') {
+      return 'Each YouTube row is independent. Use “Sign in to this channel” on every channel you publish to (XomiTech, Xomis Diary, etc.). That does not affect Google Drive or your other channels.'
+    }
+    if (platform === 'instagram') {
+      return 'Required permissions: publish media posts and read basic account profile information for this Instagram account.'
+    }
+    return 'Required permissions: publish video posts and read basic account profile information for this TikTok account.'
+  }
+
+  async function confirmPostingConnect(): Promise<void> {
+    const acc = accounts.find((a) => a.id === confirmPostingConnectId)
+    if (!acc) {
+      setConfirmPostingConnectId(null)
+      return
+    }
+    try {
+      setDriveActionError(null)
+      if (acc.platform === 'youtube') {
+        updateAccount(acc.id, {
+          postingPermissions: { ...acc.postingPermissions, manualPostingDisconnect: false }
+        })
+        if (hasYouTubeBridge()) {
+          let channels: Awaited<ReturnType<typeof window.api.youtubeListChannels>>
+          try {
+            channels = await window.api.youtubeListChannels()
+          } catch {
+            await window.api.youtubeConnect()
+            channels = await window.api.youtubeListChannels()
+          }
+          const channelId = resolveYouTubeChannelIdForAccount(acc.name, acc.url, channels)
+          if (!channelId) {
+            throw new Error(
+              `Could not match ${acc.name} to a YouTube channel on your Google account. Check the profile URL matches your channel handle, then try again.`
+            )
+          }
+          linkYouTubePostingFromChannels(channels)
+          const authorized = await window.api.youtubeGetAuthorizedChannelIds()
+          if (!isYouTubeChannelUploadAuthorized(channelId, authorized)) {
+            await window.api.youtubeAuthorizeChannel(channelId)
+          }
+          await refreshAuthorizedYouTubeChannels()
+          setYouTubeStatus(await window.api.youtubeGetStatus())
+        }
+      } else {
+        updateAccount(acc.id, {
+          postingPermissions: { ...acc.postingPermissions, canPublish: true }
+        })
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setDriveActionError(msg)
+    } finally {
+      setConfirmPostingConnectId(null)
+    }
+  }
+
   return (
     <div className="page settings-page">
       <header className="page-header">
         <h1>Settings</h1>
-        <p className="sub">Theme, behaviour, and where you post — then sign in to each platform account.</p>
+        <p className="sub">Theme, behaviour, and where you post. Google Drive and YouTube use separate sign-ins.</p>
       </header>
 
       <div className="settings-chapter" aria-labelledby="settings-chapter-theming">
@@ -406,16 +695,54 @@ export default function SettingsView({
           Platforms and accounts
         </h2>
         <p className="settings-chapter-lead muted small">
-          Choose which platforms show when you create or filter posts, then add account sign-ins to open in the
-          Accounts tab.
+          Choose which platforms show when you create or filter posts. For YouTube, sign in separately per channel
+          below — you can post to all of them without picking just one.
         </p>
+
+        {hasYouTubeBridge() && (
+          <section
+            className="settings-section card settings-section--compact"
+            aria-labelledby="settings-youtube-heading"
+          >
+            <h3 id="settings-youtube-heading" className="settings-section-title">
+              YouTube posting
+            </h3>
+            <p className="muted small settings-section-lead">
+              Separate from Google Drive. Click <strong>Connect for posting</strong> on each YouTube row — your
+              browser opens so you can pick that channel. Errors appear here if something fails.
+            </p>
+            <div className="drive-actions">
+              <button
+                type="button"
+                className="ghost"
+                disabled={youtubeBusy === 'connect' || !youtubeStatus?.credentialsConfigured}
+                onClick={() => void connectYouTubeDiscovery()}
+              >
+                {youtubeBusy === 'connect' ? 'Opening Google…' : 'Connect for channel discovery'}
+              </button>
+              <button
+                type="button"
+                className="ghost danger"
+                disabled={youtubeBusy === 'disconnect' || !youtubeStatus?.connected}
+                onClick={() => void disconnectAllYouTube()}
+              >
+                Disconnect all YouTube sign-ins
+              </button>
+            </div>
+            {youtubeActionError && (
+              <p className="drive-error muted small">
+                <strong>YouTube:</strong> {youtubeActionError}
+              </p>
+            )}
+          </section>
+        )}
 
         <section className="settings-section card settings-section--compact" aria-labelledby="settings-accounts-tab-heading">
           <h3 id="settings-accounts-tab-heading" className="settings-section-title">
             In-app account previews
           </h3>
           <p className="muted small settings-section-lead">
-            Use embedded previews in the Accounts page, or open profiles in your browser only.
+            Use embedded previews in the Accounts page. YouTube sign-in is kept browser-only for reliability.
           </p>
           <label className="settings-toggle-row">
             <span className="settings-toggle-label">Enable in-app account previews</span>
@@ -430,6 +757,16 @@ export default function SettingsView({
               <span className="settings-toggle-thumb" />
             </button>
           </label>
+          <div className="settings-reminder-test">
+            <button
+              type="button"
+              className="ghost small"
+              onClick={() => setConfirmClearSessions(true)}
+            >
+              Sign out all in-app social sessions
+            </button>
+            <span className="muted small">Clears webview cookies/storage on this device only.</span>
+          </div>
         </section>
 
         <section
@@ -485,6 +822,11 @@ export default function SettingsView({
 
           return (
             <div key={platform} className="settings-platform-group">
+              {platform === 'youtube' && youtubeActionError && (
+                <p className="drive-error muted small settings-platform-error">
+                  <strong>YouTube:</strong> {youtubeActionError}
+                </p>
+              )}
               <div className="settings-platform-header">
                 <PlatformLogoImg platform={platform} size={18} />
                 <span className="settings-platform-label">{meta.label}</span>
@@ -537,33 +879,129 @@ export default function SettingsView({
                         </div>
                       ) : (
                         <>
-                          <span className="settings-account-name">{acc.name}</span>
-                          <span className="settings-account-url muted small">{acc.url || meta.defaultUrl}</span>
+                          <div className="settings-account-main">
+                            <span className="settings-account-name">{acc.name}</span>
+                            <span className="settings-account-url muted small">{acc.url || meta.defaultUrl}</span>
+                            {acc.platform === 'youtube' && acc.youtubeChannelId && (
+                              <span className="muted small settings-account-youtube-link">
+                                Uploads as:{' '}
+                                {youtubeChannelLabel(acc.youtubeChannelId, youtubeChannelsListed) ??
+                                  'Unknown channel — reconnect'}
+                              </span>
+                            )}
+                            {POSTING_PERMISSION_PLATFORMS.has(acc.platform) && (
+                              <div className="settings-account-permissions">
+                                <div className="settings-account-connection-row">
+                                  <button
+                                    type="button"
+                                    className={`settings-account-connect-btn${acc.postingPermissions.canPublish ? ' settings-account-connect-btn--disconnect' : ''}`}
+                                    disabled={youtubeRowBusyId === acc.id}
+                                    onClick={() => {
+                                      if (youtubeRowBusyId === acc.id) return
+                                      if (!acc.postingPermissions.canPublish) {
+                                        if (acc.platform === 'youtube') {
+                                          void connectYouTubePostingForAccount(acc)
+                                          return
+                                        }
+                                        setConfirmPostingConnectId(acc.id)
+                                        return
+                                      }
+                                      updateAccount(acc.id, {
+                                        postingPermissions: {
+                                          ...acc.postingPermissions,
+                                          canPublish: false,
+                                          manualPostingDisconnect: true
+                                        },
+                                        youtubeChannelId: null
+                                      })
+                                    }}
+                                    aria-label={`${acc.postingPermissions.canPublish ? 'Disconnect posting access for' : 'Connect posting access for'} ${acc.name}`}
+                                  >
+                                    {youtubeRowBusyId === acc.id
+                                      ? 'Opening Google…'
+                                      : acc.postingPermissions.canPublish
+                                        ? 'Disconnect posting'
+                                        : 'Connect for posting'}
+                                  </button>
+                                  {acc.platform === 'youtube' &&
+                                    acc.postingPermissions.canPublish &&
+                                    acc.youtubeChannelId &&
+                                    !isYouTubeChannelUploadAuthorized(
+                                      acc.youtubeChannelId,
+                                      authorizedYouTubeChannelIds
+                                    ) &&
+                                    youtubeRowBusyId !== acc.id && (
+                                      <button
+                                        type="button"
+                                        className="settings-account-connect-btn"
+                                        onClick={() => void authorizeYouTubeChannelForAccount(acc)}
+                                      >
+                                        Sign in to this channel
+                                      </button>
+                                    )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                           <div className="settings-account-actions">
-                            <button
-                              type="button"
-                              className="settings-account-btn"
-                              onClick={() => openAccountInBrowser(acc.url || meta.defaultUrl)}
-                              aria-label={`Open ${acc.name} in browser`}
-                            >
-                              Open
-                            </button>
-                            <button
-                              type="button"
-                              className="settings-account-btn"
-                              onClick={() => openEdit(acc.id, acc.name, acc.url)}
-                              aria-label={`Edit ${acc.name}`}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="settings-account-btn settings-account-btn--danger"
-                              onClick={() => setConfirmRemoveId(acc.id)}
-                              aria-label={`Remove ${acc.name}`}
-                            >
-                              Remove
-                            </button>
+                            <div className="settings-account-actions-main">
+                              <button
+                                type="button"
+                                className="settings-account-btn"
+                                onClick={() => openAccountInBrowser(acc.url || meta.defaultUrl)}
+                                aria-label={`Open ${acc.name} in browser`}
+                              >
+                                Open
+                              </button>
+                              <button
+                                type="button"
+                                className="settings-account-btn"
+                                onClick={() => openEdit(acc.id, acc.name, acc.url)}
+                                aria-label={`Edit ${acc.name}`}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="settings-account-btn settings-account-btn--danger"
+                                onClick={() => setConfirmRemoveId(acc.id)}
+                                aria-label={`Remove ${acc.name}`}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                            {POSTING_PERMISSION_PLATFORMS.has(acc.platform) && (() => {
+                              const youtubeReady =
+                                acc.platform !== 'youtube' ||
+                                (acc.postingPermissions.canPublish &&
+                                  isYouTubeChannelUploadAuthorized(
+                                    acc.youtubeChannelId,
+                                    authorizedYouTubeChannelIds
+                                  ))
+                              const statusLabel =
+                                acc.platform === 'youtube'
+                                  ? !acc.postingPermissions.canPublish
+                                    ? 'Posting: Disconnected'
+                                    : !acc.youtubeChannelId
+                                      ? 'Posting: Not linked'
+                                      : youtubeReady
+                                        ? 'Posting: Ready'
+                                        : 'Posting: Channel sign-in needed'
+                                  : acc.postingPermissions.canPublish
+                                    ? 'Posting: Connected'
+                                    : 'Posting: Disconnected'
+                              return (
+                                <span
+                                  className={`settings-account-connection-status${
+                                    acc.postingPermissions.canPublish && youtubeReady
+                                      ? ' settings-account-connection-status--connected'
+                                      : ''
+                                  }`}
+                                >
+                                  {statusLabel}
+                                </span>
+                              )
+                            })()}
                           </div>
                         </>
                       )}
@@ -652,8 +1090,8 @@ export default function SettingsView({
                   </button>
                   <span className="muted small drive-actions-hint">
                     {driveStatus?.credentialsManaged
-                      ? 'Opens your browser to sign in using app-managed credentials.'
-                      : 'Google Drive credentials are not configured for this build.'}
+                      ? 'Sync only — pick any Google account for Drive. YouTube uses separate sign-ins under YouTube posting above.'
+                      : 'Google credentials are not configured for this build.'}
                   </span>
                 </div>
               )}
@@ -701,9 +1139,9 @@ export default function SettingsView({
                 </>
               )}
 
-              {(driveActionError || driveStatus.lastError) && (
+              {(driveActionError || driveStatus.lastError || youtubeActionError || youtubeStatus?.lastError) && (
                 <p className="drive-error muted small">
-                  <strong>Error:</strong> {driveActionError ?? driveStatus.lastError}
+                  <strong>Error:</strong> {driveActionError ?? driveStatus.lastError ?? youtubeActionError ?? youtubeStatus?.lastError}
                 </p>
               )}
             </>
@@ -732,12 +1170,36 @@ export default function SettingsView({
       {confirmDriveDisconnect && (
         <ConfirmDialog
           title="Disconnect Google Drive?"
-          message="Sync will stop. Your posts and notes stay on this device, and the files in your Drive folder are not deleted."
+          message="Stops Drive sync only. YouTube channel sign-ins stay active. Your posts and notes on this device are not deleted."
           confirmLabel="Disconnect"
           onConfirm={() => void disconnectDrive()}
           onCancel={() => setConfirmDriveDisconnect(false)}
         />
       )}
+
+      {confirmClearSessions && (
+        <ConfirmDialog
+          title="Sign out all in-app social sessions?"
+          message="This clears stored webview sessions (cookies + local storage) for social account previews on this device. You can sign in again anytime."
+          confirmLabel="Sign out all"
+          onConfirm={() => void clearAccountSessions()}
+          onCancel={() => setConfirmClearSessions(false)}
+        />
+      )}
+
+      {confirmPostingConnectId && (() => {
+        const acc = accounts.find((a) => a.id === confirmPostingConnectId)
+        if (!acc) return null
+        return (
+          <ConfirmDialog
+            title={`Connect ${PLATFORM_META[acc.platform].label} for posting?`}
+            message={`${getPostingPermissionSummary(acc.platform)} You can disconnect posting access any time in Settings.`}
+            confirmLabel="Allow and connect"
+            onConfirm={() => void confirmPostingConnect()}
+            onCancel={() => setConfirmPostingConnectId(null)}
+          />
+        )
+      })()}
 
     </div>
   )

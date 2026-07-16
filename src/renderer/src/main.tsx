@@ -1,6 +1,8 @@
+import './theme-sync-document'
 import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import ErrorBoundary from './components/ErrorBoundary'
 import { AccountsProvider } from './accounts/context'
 import { playPop } from './utils/sound'
 import {
@@ -51,9 +53,11 @@ function Root(): React.ReactElement {
   if (!ready) return <></>
 
   return (
-    <AccountsProvider>
-      <App />
-    </AccountsProvider>
+    <ErrorBoundary>
+      <AccountsProvider>
+        <App />
+      </AccountsProvider>
+    </ErrorBoundary>
   )
 }
 

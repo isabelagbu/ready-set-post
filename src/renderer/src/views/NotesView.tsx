@@ -293,7 +293,7 @@ function StickyNoteCard({
 }
 
 // ── NotesView ─────────────────────────────────────────────────────────────────
-export default function NotesView(): React.ReactElement {
+export default function NotesView({ isActive = true }: { isActive?: boolean }): React.ReactElement {
   const [tabs, setTabs] = useState<TabData[]>(readTabs)
   const [active, setActive] = useState<number>(readActive)
   const [editingTab, setEditingTab] = useState<number | null>(null)
@@ -481,7 +481,7 @@ export default function NotesView(): React.ReactElement {
       />
 
       {/* Sticky notes — rendered into document.body via portals */}
-      {stickies.map((note) => (
+      {isActive && stickies.map((note) => (
         <StickyNoteCard
           key={note.id}
           note={note}
@@ -493,7 +493,7 @@ export default function NotesView(): React.ReactElement {
       ))}
 
       {/* Floating action button */}
-      {createPortal(
+      {isActive && createPortal(
         <button
           type="button"
           className="primary sticky-fab"

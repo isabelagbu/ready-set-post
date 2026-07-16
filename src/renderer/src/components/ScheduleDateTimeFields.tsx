@@ -8,6 +8,7 @@ export default function ScheduleDateTimeFields({
   onTimeChange,
   noTime,
   onNoTimeChange,
+  showNoTime = true,
   disabled = false,
   idPrefix = 'sched',
   showDateError = false
@@ -18,6 +19,7 @@ export default function ScheduleDateTimeFields({
   onTimeChange: (timeHm: string) => void
   noTime: boolean
   onNoTimeChange: (noTime: boolean) => void
+  showNoTime?: boolean
   disabled?: boolean
   idPrefix?: string
   showDateError?: boolean
@@ -80,16 +82,18 @@ export default function ScheduleDateTimeFields({
             onChange={(e) => onTimeChange(e.target.value)}
             disabled={timeDisabled}
           />
-          <label className="sched-dt-no-time">
-            <input
-              id={`${idPrefix}-no-time`}
-              type="checkbox"
-              checked={noTime}
-              disabled={disabled}
-              onChange={(e) => onNoTimeChange(e.target.checked)}
-            />
-            <span>No time</span>
-          </label>
+          {showNoTime && (
+            <label className="sched-dt-no-time">
+              <input
+                id={`${idPrefix}-no-time`}
+                type="checkbox"
+                checked={noTime}
+                disabled={disabled}
+                onChange={(e) => onNoTimeChange(e.target.checked)}
+              />
+              <span>No time</span>
+            </label>
+          )}
         </div>
       </div>
     </div>

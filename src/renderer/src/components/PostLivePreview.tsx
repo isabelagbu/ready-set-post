@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
-
-function youTubeThumbnail(url: string): string | null {
-  const m = url.match(/(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/)([^&?\s/]+)/)
-  return m ? `https://img.youtube.com/vi/${m[1]}/hqdefault.jpg` : null
-}
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  extractYouTubeVideoId,
+  postCardThumbnailCandidates,
+  youTubeThumbnailUrls
+} from '../posts/thumbnails'
+import type { Post } from '../posts/types'
 
 function detectPlatform(url: string): string {
   if (/youtube\.com|youtu\.be/.test(url)) return 'YouTube'
@@ -15,26 +16,66 @@ function detectPlatform(url: string): string {
   return 'Link'
 }
 
-export default function PostLivePreview({ url }: { url: string }): React.ReactElement {
+export default function PostLivePreview({ url, post }: { url: string; post?: Post }): React.ReactElement {
+  const [srcIndex, setSrcIndex] = useState(0)
   const [thumb, setThumb] = useState<string | null>(null)
   const [thumbError, setThumbError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+  const retryTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const platform = detectPlatform(url)
 
+  const candidates = useMemo(() => {
+    if (post) return postCardThumbnailCandidates(post, url)
+    const ytId = extractYouTubeVideoId(url)
+    return ytId ? youTubeThumbnailUrls(ytId) : []
+  }, [url, post])
+
   useEffect(() => {
+    setSrcIndex(0)
     setThumb(null)
     setThumbError(false)
+    setReloadKey(0)
 
-    const yt = youTubeThumbnail(url)
-    if (yt) { setThumb(yt); return }
-
-    // TikTok oEmbed
-    if (/tiktok\.com/.test(url)) {
+    if (candidates.length > 0) {
+      setThumb(candidates[0])
+      const skipRetry = !!post?.previewThumbnailDataUrl
+      if (skipRetry) return
+      let attempts = 0
+      retryTimer.current = setInterval(() => {
+        attempts += 1
+        if (attempts > 6) {
+          if (retryTimer.current) clearInterval(retryTimer.current)
+          return
+        }
+        setSrcIndex(0)
+        setThumbError(false)
+        setThumb(candidates[0])
+        setReloadKey((k) => k + 1)
+      }, 4000)
+    } else if (/tiktok\.com/.test(url)) {
       fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`)
         .then((r) => r.json())
-        .then((d) => { if (d.thumbnail_url) setThumb(d.thumbnail_url) })
+        .then((d) => {
+          if (d.thumbnail_url) setThumb(d.thumbnail_url)
+        })
         .catch(() => {})
     }
-  }, [url])
+
+    return () => {
+      if (retryTimer.current) clearInterval(retryTimer.current)
+    }
+  }, [url, candidates])
+
+  const activeSrc = thumbError ? null : candidates[srcIndex] ?? thumb
+
+  function onImgError(): void {
+    if (candidates.length > 0 && srcIndex + 1 < candidates.length) {
+      setSrcIndex((i) => i + 1)
+      setThumb(candidates[srcIndex + 1])
+      return
+    }
+    setThumbError(true)
+  }
 
   return (
     <a
@@ -45,12 +86,13 @@ export default function PostLivePreview({ url }: { url: string }): React.ReactEl
       aria-label={`View live post on ${platform}`}
     >
       <div className="post-live-preview-thumb">
-        {thumb && !thumbError ? (
+        {activeSrc && !thumbError ? (
           <img
-            src={thumb}
+            key={`${activeSrc}-${reloadKey}`}
+            src={activeSrc}
             alt="Video thumbnail"
             className="post-live-preview-img"
-            onError={() => setThumbError(true)}
+            onError={onImgError}
           />
         ) : (
           <div className="post-live-preview-placeholder" aria-hidden>

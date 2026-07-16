@@ -4,7 +4,17 @@ import { useReminders } from './hooks/useReminders'
 import OnboardingModal, { hasSeenOnboarding } from './components/OnboardingModal'
 import BrandLogo from './components/BrandLogo'
 import type { NavId } from './nav'
-import { parsePost, type Post } from './posts/types'
+import PublishSuccessDialog, {
+  type PublishSuccessInfo
+} from './components/PublishSuccessDialog'
+import {
+  EMPTY_CONTENT_NOTES,
+  mergePostsLists,
+  newPostId,
+  parsePost,
+  type CreatePostPayload,
+  type Post
+} from './posts/types'
 import {
   applyThemeToDocument,
   persistAccent,
@@ -71,7 +81,12 @@ export default function App(): React.ReactElement {
   const [contentStatusFilter, setContentStatusFilter] = useState<'draft' | 'scheduled' | 'posted' | undefined>(undefined)
   const [calendarInitialDateKey, setCalendarInitialDateKey] = useState<string | undefined>(undefined)
   const [contentOpenPostId, setContentOpenPostId] = useState<string | undefined>(undefined)
+  const [contentOpenCreate, setContentOpenCreate] = useState(false)
   const [accountsPreviewOn, setAccountsPreviewOn] = useState(() => isInAppAccountPreviewEnabled())
+  const [publishSuccess, setPublishSuccess] = useState<{
+    post: Post
+    info: PublishSuccessInfo
+  } | null>(null)
 
   function navigateTo(
     id: NavId,
@@ -80,6 +95,7 @@ export default function App(): React.ReactElement {
     calendarDateKey?: string
   ): void {
     setContentOpenPostId(undefined)
+    setContentOpenCreate(false)
     setContentSection(id === 'content' ? section : undefined)
     setContentStatusFilter(id === 'content' ? statusFilter : undefined)
     if (id === 'calendar') {
@@ -102,9 +118,68 @@ export default function App(): React.ReactElement {
       setContentStatusFilter(p.status === 'scheduled' ? 'scheduled' : p.status === 'posted' ? 'posted' : undefined)
     }
     setContentOpenPostId(postId)
+    setContentOpenCreate(false)
     setCalendarInitialDateKey(undefined)
     setActive('content')
   }
+
+  function openContentCreate(): void {
+    playPop()
+    setContentOpenPostId(undefined)
+    setContentOpenCreate(true)
+    setContentSection('content')
+    setContentStatusFilter(undefined)
+    setCalendarInitialDateKey(undefined)
+    setActive('content')
+  }
+
+  function revealContentPost(post: Post): void {
+    playPop()
+    setContentOpenCreate(false)
+    setContentOpenPostId(post.id)
+    if (post.status === 'draft') {
+      setContentSection('drafts')
+      setContentStatusFilter(undefined)
+    } else {
+      setContentSection('content')
+      setContentStatusFilter(
+        post.status === 'scheduled' ? 'scheduled' : post.status === 'posted' ? 'posted' : undefined
+      )
+    }
+    setCalendarInitialDateKey(undefined)
+    setActive('content')
+  }
+
+  function addPost(payload: CreatePostPayload): Post {
+    const nowIso = new Date().toISOString()
+    const post: Post = {
+      id: newPostId(),
+      title: payload.title,
+      body: payload.body,
+      platforms: payload.platforms,
+      accountIds: payload.accountIds,
+      status: payload.status,
+      scheduledAt: payload.status === 'draft' ? null : payload.scheduledAt,
+      postedUrl: payload.status === 'posted' ? payload.postedUrl : null,
+      postedLinks: payload.status === 'posted' ? payload.postedLinks : {},
+      youtubeVideoId: payload.youtubeVideoId ?? null,
+      previewThumbnailDataUrl: payload.previewThumbnailDataUrl ?? null,
+      mediaType: payload.mediaType,
+      videoAsset: payload.videoAsset,
+      platformPublishConfig: payload.platformPublishConfig,
+      contentNotes: { ...EMPTY_CONTENT_NOTES, caption: payload.body.trim() },
+      createdAt: nowIso,
+      updatedAt: nowIso
+    }
+    setPosts((prev) => [post, ...prev])
+    return post
+  }
+
+  function handlePostPublished(post: Post, info: PublishSuccessInfo): void {
+    setPublishSuccess({ post, info })
+    revealContentPost(post)
+  }
+
   const [posts, setPosts] = useState<Post[]>([])
   const [loaded, setLoaded] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -130,10 +205,10 @@ export default function App(): React.ReactElement {
   }, [])
 
   useEffect(() => {
-    // Drive-driven external updates (other device pulled in by background sync).
+    // Drive-driven external updates — merge so a background pull cannot drop a just-created post.
     return window.api.onDrivePostsChange(({ posts: raw }) => {
       const parsed = (raw ?? []).map(parsePost).filter((p): p is Post => p !== null)
-      setPosts(parsed)
+      setPosts((prev) => mergePostsLists(prev, parsed))
     })
   }, [])
 
@@ -171,14 +246,6 @@ export default function App(): React.ReactElement {
     return () => window.removeEventListener(WORKSPACE_SYNCED_EVENT, onWorkspaceSynced)
   }, [])
 
-  useEffect(() => {
-    if (active !== 'content') {
-      setContentOpenPostId(undefined)
-      setContentSection(undefined)
-      setContentStatusFilter(undefined)
-    }
-  }, [active])
-
   return (
     <div className="shell">
       <aside
@@ -214,46 +281,72 @@ export default function App(): React.ReactElement {
         </nav>
       </aside>
 
-      <main className="main">
-        {active === 'dashboard' && (
+      <main className={`main main--${active}`}>
+        <div className={`app-view${active === 'dashboard' ? ' app-view--active' : ''}`} aria-hidden={active !== 'dashboard'}>
           <DashboardView
             posts={posts}
             onNavigate={(id, section, statusFilter, calendarDateKey) => navigateTo(id, section, statusFilter, calendarDateKey)}
+            onCreatePost={openContentCreate}
             onOpenPostDetail={openContentPostDetail}
           />
-        )}
-        {active === 'calendar' && (
+        </div>
+        <div className={`app-view${active === 'calendar' ? ' app-view--active' : ''}`} aria-hidden={active !== 'calendar'}>
           <CalendarView
             posts={posts}
             setPosts={setPosts}
             initialDateKey={calendarInitialDateKey}
+            isActive={active === 'calendar'}
+            onCreatePost={addPost}
+            onPostCreated={revealContentPost}
+            onPostPublished={handlePostPublished}
           />
-        )}
-        {active === 'content' && (
+        </div>
+        <div className={`app-view${active === 'content' ? ' app-view--active' : ''}`} aria-hidden={active !== 'content'}>
           <ContentView
-            key={`${contentSection ?? 'default'}-${contentStatusFilter ?? 'none'}`}
             posts={posts}
             setPosts={setPosts}
             initialSection={contentSection}
             initialStatusFilter={contentStatusFilter}
             initialOpenPostId={contentOpenPostId}
             onConsumeInitialOpen={() => setContentOpenPostId(undefined)}
+            initialOpenCreate={contentOpenCreate}
+            onConsumeInitialCreate={() => setContentOpenCreate(false)}
+            onCreatePost={addPost}
+            onPostCreated={revealContentPost}
+            onPostPublished={handlePostPublished}
+            isActive={active === 'content'}
           />
-        )}
-        {active === 'notes' && <NotesView />}
-        {active === 'accounts' && <AccountsView previewEnabled={accountsPreviewOn} />}
-        {active === 'settings' && (
+        </div>
+        <div className={`app-view${active === 'notes' ? ' app-view--active' : ''}`} aria-hidden={active !== 'notes'}>
+          <NotesView isActive={active === 'notes'} />
+        </div>
+        <div className={`app-view${active === 'accounts' ? ' app-view--active' : ''}`} aria-hidden={active !== 'accounts'}>
+          <AccountsView previewEnabled={accountsPreviewOn} />
+        </div>
+        <div className={`app-view${active === 'settings' ? ' app-view--active' : ''}`} aria-hidden={active !== 'settings'}>
           <SettingsView
             theme={theme}
             accent={accent}
             onThemeChange={setTheme}
             onAccentChange={setAccent}
           />
-        )}
+        </div>
       </main>
 
       {showOnboarding && (
         <OnboardingModal onDone={() => setShowOnboarding(false)} />
+      )}
+
+      {publishSuccess && (
+        <PublishSuccessDialog
+          post={publishSuccess.post}
+          info={publishSuccess.info}
+          onDismiss={() => setPublishSuccess(null)}
+          onViewInContent={() => {
+            revealContentPost(publishSuccess.post)
+            setPublishSuccess(null)
+          }}
+        />
       )}
     </div>
   )

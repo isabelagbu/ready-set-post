@@ -12,6 +12,16 @@ export type DriveSyncStatus = {
   syncing: boolean
   hasPendingChanges: boolean
 }
+export type YouTubeAuthStatus = {
+  connected: boolean
+  credentialsConfigured: boolean
+  lastError: string | null
+}
+export type YouTubeChannel = {
+  id: string
+  title: string
+  customUrl: string
+}
 
 const api = {
   readStore: (): Promise<{ posts: unknown[] }> => ipcRenderer.invoke('store:read'),
@@ -25,11 +35,45 @@ const api = {
   notify: (title: string, body: string): Promise<void> =>
     ipcRenderer.invoke('notify', title, body),
   openExternalUrl: (url: string): Promise<boolean> => ipcRenderer.invoke('external:open', url),
+  clearAccountSessions: (): Promise<void> => ipcRenderer.invoke('accounts:clearSessions'),
+  youtubePublish: (payload: {
+    title: string
+    description: string
+    tags: string[]
+    privacyStatus: 'private' | 'unlisted' | 'public'
+    madeForKids: boolean
+    publishAt: string | null
+    videoBuffer: ArrayBuffer
+    videoMimeType: string
+    thumbnailBuffer?: ArrayBuffer
+    thumbnailMimeType?: string
+    channelId?: string | null
+  }): Promise<{
+    videoId: string
+    watchUrl: string
+    publishAt: string | null
+    channelTitle: string
+    thumbnailWarning: string | null
+  }> =>
+    ipcRenderer.invoke('youtube:publish', payload),
 
   driveGetStatus: (): Promise<DriveSyncStatus> => ipcRenderer.invoke('drive:status'),
   driveConnect: (): Promise<DriveSyncStatus> => ipcRenderer.invoke('drive:connect'),
   driveDisconnect: (): Promise<DriveSyncStatus> => ipcRenderer.invoke('drive:disconnect'),
   driveSyncNow: (): Promise<DriveSyncStatus> => ipcRenderer.invoke('drive:syncNow'),
+  youtubeGetStatus: (): Promise<YouTubeAuthStatus> => ipcRenderer.invoke('youtube:status'),
+  youtubeConnect: (): Promise<YouTubeAuthStatus> => ipcRenderer.invoke('youtube:connect'),
+  youtubeDisconnect: (): Promise<YouTubeAuthStatus> => ipcRenderer.invoke('youtube:disconnect'),
+  youtubeListChannels: (): Promise<YouTubeChannel[]> => ipcRenderer.invoke('youtube:listChannels'),
+  youtubeAuthorizeChannel: (channelId: string): Promise<void> =>
+    ipcRenderer.invoke('youtube:authorizeChannel', channelId),
+  youtubeLinkAccountBySignIn: (payload: {
+    name: string
+    url: string
+  }): Promise<YouTubeChannel> => ipcRenderer.invoke('youtube:linkAccountBySignIn', payload),
+  youtubeGetAuthorizedChannelIds: (): Promise<string[]> =>
+    ipcRenderer.invoke('youtube:getAuthorizedChannelIds'),
+  youtubeHasListAuth: (): Promise<boolean> => ipcRenderer.invoke('youtube:hasListAuth'),
 
   onDriveStatusChange: (cb: (status: Partial<DriveSyncStatus>) => void): (() => void) => {
     const listener = (_event: unknown, status: Partial<DriveSyncStatus>): void => cb(status)
@@ -60,6 +104,11 @@ const api = {
     ): void => cb(payload)
     ipcRenderer.on('drive:workspace-changed', listener)
     return () => ipcRenderer.removeListener('drive:workspace-changed', listener)
+  },
+  onAccountSessionsCleared: (cb: () => void): (() => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('accounts:sessions-cleared', listener)
+    return () => ipcRenderer.removeListener('accounts:sessions-cleared', listener)
   }
 }
 

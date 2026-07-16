@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import PostNotesFullView from '../components/PostNotesFullView'
 import PostCreateModal from '../components/PostCreateModal'
 import PostEditorForm from '../components/PostEditorForm'
@@ -6,13 +6,8 @@ import PostPills from '../components/PostPills'
 import PostCardThumb from '../components/PostCardThumb'
 import Tip from '../components/Tip'
 import { pad2 } from '../posts/datetime'
-import {
-  livePostUrl,
-  newPostId,
-  EMPTY_CONTENT_NOTES,
-  type Post,
-  type PostContentNotes
-} from '../posts/types'
+import type { PublishSuccessInfo } from '../components/PublishSuccessDialog'
+import { livePostUrl, type CreatePostPayload, type Post, type PostContentNotes } from '../posts/types'
 
 function dateKey(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
@@ -90,12 +85,20 @@ function groupPostsByLocalDate(posts: Post[]): Map<string, Post[]> {
 export default function CalendarView({
   posts,
   setPosts,
-  initialDateKey
+  initialDateKey,
+  isActive = true,
+  onCreatePost,
+  onPostCreated,
+  onPostPublished
 }: {
   posts: Post[]
   setPosts: React.Dispatch<React.SetStateAction<Post[]>>
   /** When opening Calendar from Dashboard (e.g. Overdue), select this day and show its month. */
   initialDateKey?: string
+  isActive?: boolean
+  onCreatePost: (payload: CreatePostPayload) => Post
+  onPostCreated?: (post: Post) => void
+  onPostPublished?: (post: Post, info: PublishSuccessInfo) => void
 }): React.ReactElement {
   const [viewMonth, setViewMonth] = useState(() => {
     if (initialDateKey) {
@@ -109,6 +112,11 @@ export default function CalendarView({
   )
   const [notesModalPostId, setNotesModalPostId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
+
+  useEffect(() => {
+    if (isActive) return
+    setShowCreate(false)
+  }, [isActive])
 
   const grid = useMemo(() => buildMonthGrid(viewMonth), [viewMonth])
   const byDay = useMemo(() => groupPostsByLocalDate(posts), [posts])
@@ -139,31 +147,11 @@ export default function CalendarView({
     setSelectedKey(dateKey(t))
   }
 
-  function handleCreate(payload: {
-    title: string
-    body: string
-    platforms: string[]
-    accountIds: string[]
-    status: 'draft' | 'scheduled' | 'posted'
-    scheduledAt: string | null
-    postedUrl: string | null
-  }): void {
-    const now = new Date().toISOString()
-    const newPost: Post = {
-      id: newPostId(),
-      title: payload.title,
-      body: payload.body,
-      platforms: payload.platforms,
-      accountIds: payload.accountIds,
-      status: payload.status,
-      scheduledAt: payload.status === 'scheduled' ? payload.scheduledAt : null,
-      postedUrl: payload.status === 'posted' ? payload.postedUrl : null,
-      contentNotes: { ...EMPTY_CONTENT_NOTES, caption: payload.body.trim() },
-      createdAt: now,
-      updatedAt: now
-    }
-    setPosts((prev) => [...prev, newPost])
+  function handleCreate(payload: CreatePostPayload): Post {
+    const post = onCreatePost(payload)
     setShowCreate(false)
+    onPostCreated?.(post)
+    return post
   }
 
   // ── Drag-to-reschedule ────────────────────────────────────
@@ -317,6 +305,7 @@ export default function CalendarView({
       {notesModalPost && (
         <PostNotesFullView
           post={notesModalPost}
+          isVisible={isActive}
           onClose={() => setNotesModalPostId(null)}
           onNotesChange={(next) => setNotesForPost(notesModalPost.id, next)}
           onPostChange={(patch) =>
@@ -338,6 +327,7 @@ export default function CalendarView({
           initialDate={createInitialDate}
           onClose={() => setShowCreate(false)}
           onCreate={handleCreate}
+          onPostPublished={onPostPublished}
         />
       )}
     </div>
@@ -444,7 +434,7 @@ function DayPanelPosts({
                 ) : (
                   <>
                     <div
-                      className={`post-body-hit${p.status === 'posted' && p.postedUrl ? ' post-body-hit--thumb-stacked' : ''}`}
+                      className={`post-body-hit${p.status === 'posted' && livePostUrl(p) ? ' post-body-hit--thumb-stacked' : ''}`}
                       role="button"
                       tabIndex={0}
                       aria-haspopup="dialog"
@@ -457,11 +447,14 @@ function DayPanelPosts({
                         }
                       }}
                     >
-                      {p.status === 'posted' && p.postedUrl && (
-                        <PostCardThumb postedUrl={p.postedUrl} />
+                      {p.status === 'posted' && livePostUrl(p) && (
+                        <PostCardThumb post={p} postedUrl={livePostUrl(p)!} />
                       )}
                       <div className="post-body-hit-text">
                         <p className="day-post-title">{p.title}</p>
+                        {p.mediaType === 'video' && (
+                          <span className="post-media-chip">Video</span>
+                        )}
                         <p className="body">{p.body}</p>
                         <span className="muted small post-body-hit-hint">Click for full details</span>
                       </div>
@@ -475,7 +468,8 @@ function DayPanelPosts({
                           rel="noopener noreferrer"
                           className="post-live-link"
                           title={
-                            !p.postedUrl?.trim()
+                            !p.postedUrl?.trim() &&
+                            !Object.values(p.postedLinks ?? {}).some((v) => v.trim().length > 0)
                               ? 'Placeholder — set a real URL in Content'
                               : undefined
                           }

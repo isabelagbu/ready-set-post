@@ -1,5 +1,11 @@
 export type Platform = 'tiktok' | 'instagram' | 'threads' | 'youtube' | 'linkedin' | 'x'
 
+export type AccountPostingPermissions = {
+  canPublish: boolean
+  /** User chose Disconnect posting — skip automatic YouTube channel linking */
+  manualPostingDisconnect?: boolean
+}
+
 export type Account = {
   id: string
   platform: Platform
@@ -7,6 +13,8 @@ export type Account = {
   name: string
   /** URL loaded in the browser tab */
   url: string
+  postingPermissions: AccountPostingPermissions
+  youtubeChannelId: string | null
 }
 
 export const PLATFORMS: Platform[] = ['tiktok', 'instagram', 'threads', 'youtube', 'linkedin', 'x']
@@ -34,7 +42,11 @@ const ACCOUNTS_KEY = 'smm-accounts'
 const ACCOUNTS_DEMO_VERSION_KEY = 'smm-accounts-demo-v'
 
 /** Bump when `getSeedAccounts()` changes; demo-only rows refresh on next load. */
-export const DEMO_ACCOUNTS_VERSION = 5
+export const DEMO_ACCOUNTS_VERSION = 6
+
+export function defaultPostingPermissions(): AccountPostingPermissions {
+  return { canPublish: true }
+}
 
 export function newAccountId(): string {
   return `acc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
@@ -59,55 +71,73 @@ export function getSeedAccounts(): Account[] {
       id: SEED_ACCOUNT_IDS.youtube,
       platform: 'youtube',
       name: '@xomisdiary',
-      url: 'https://www.youtube.com/@xomisdiary'
+      url: 'https://www.youtube.com/@xomisdiary',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.youtubeMusic,
       platform: 'youtube',
       name: '@sincerely_xomi',
-      url: 'https://www.youtube.com/@sincerely_xomi'
+      url: 'https://www.youtube.com/@sincerely_xomi',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.instagram,
       platform: 'instagram',
       name: '@sincerely_xomi',
-      url: 'https://www.instagram.com/sincerely_xomi/'
+      url: 'https://www.instagram.com/sincerely_xomi/',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.instagramTech,
       platform: 'instagram',
       name: '@xomitech',
-      url: 'https://www.instagram.com/xomitech/'
+      url: 'https://www.instagram.com/xomitech/',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.threads,
       platform: 'threads',
       name: '@sincerely_xomi',
-      url: 'https://www.threads.com/@sincerely_xomi'
+      url: 'https://www.threads.com/@sincerely_xomi',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.tiktok,
       platform: 'tiktok',
       name: '@sincerely_xomi',
-      url: 'https://www.tiktok.com/@sincerely_xomi'
+      url: 'https://www.tiktok.com/@sincerely_xomi',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.tiktokTech,
       platform: 'tiktok',
       name: '@xomitech',
-      url: 'https://www.tiktok.com/@xomitech'
+      url: 'https://www.tiktok.com/@xomitech',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.linkedin,
       platform: 'linkedin',
       name: 'Isabel Agbu',
-      url: 'https://www.linkedin.com/in/isabel-agbu/'
+      url: 'https://www.linkedin.com/in/isabel-agbu/',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.x,
       platform: 'x',
       name: '@strawbericheri',
-      url: 'https://x.com/strawbericheri'
+      url: 'https://x.com/strawbericheri',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     }
   ]
 }
@@ -118,37 +148,49 @@ export function getGenericSeedAccounts(): Account[] {
       id: SEED_ACCOUNT_IDS.youtube,
       platform: 'youtube',
       name: '@creator_demo',
-      url: 'https://www.youtube.com'
+      url: 'https://www.youtube.com',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.instagram,
       platform: 'instagram',
       name: '@creator.demo',
-      url: 'https://www.instagram.com'
+      url: 'https://www.instagram.com',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.threads,
       platform: 'threads',
       name: '@creator.demo',
-      url: 'https://www.threads.net'
+      url: 'https://www.threads.net',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.tiktok,
       platform: 'tiktok',
       name: '@creator_demo',
-      url: 'https://www.tiktok.com'
+      url: 'https://www.tiktok.com',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.linkedin,
       platform: 'linkedin',
       name: 'Creator Demo',
-      url: 'https://www.linkedin.com'
+      url: 'https://www.linkedin.com',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     },
     {
       id: SEED_ACCOUNT_IDS.x,
       platform: 'x',
       name: '@creator_demo',
-      url: 'https://x.com'
+      url: 'https://x.com',
+      postingPermissions: defaultPostingPermissions(),
+      youtubeChannelId: null
     }
   ]
 }
@@ -176,6 +218,16 @@ function isValidAccount(x: unknown): x is Account {
   )
 }
 
+function normalizeAccount(x: Account): Account {
+  return {
+    ...x,
+    postingPermissions: {
+      canPublish: x.postingPermissions?.canPublish ?? true
+    },
+    youtubeChannelId: x.youtubeChannelId ?? null
+  }
+}
+
 function isDemoOnlyAccountList(accounts: Account[]): boolean {
   return accounts.length > 0 && accounts.every((a) => a.id.startsWith('seed-acc-'))
 }
@@ -195,7 +247,7 @@ export function readAccounts(): Account[] {
     }
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    const accounts = parsed.filter(isValidAccount)
+    const accounts = parsed.filter(isValidAccount).map(normalizeAccount)
     if (isDemoOnlyAccountList(accounts)) {
       try {
         if (localStorage.getItem(ACCOUNTS_DEMO_VERSION_KEY) !== String(DEMO_ACCOUNTS_VERSION)) {

@@ -1,3 +1,5 @@
+import React from 'react'
+
 export default function BrandLogo({ size = 28 }: { size?: number }): React.ReactElement {
   return (
     <svg

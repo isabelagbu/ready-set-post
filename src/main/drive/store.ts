@@ -8,7 +8,7 @@ import {
   hasManagedDriveCredentials,
   isConnected,
   readDriveConfig,
-  startOAuthFlow,
+  startDriveOAuthFlow,
   writeDriveConfig
 } from './auth'
 import {
@@ -775,7 +775,7 @@ export async function setClientSecret(clientSecret: string): Promise<void> {
 }
 
 export async function connect(): Promise<DriveSyncStatus> {
-  await startOAuthFlow()
+  await startDriveOAuthFlow()
   syncState.refs = emptyRefs()
   syncState.lastError = null
   await persistSyncState()

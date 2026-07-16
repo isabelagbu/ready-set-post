@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { playTriplePop } from '../utils/sound'
 import ConfirmDialog from '../components/ConfirmDialog'
 import Tip from '../components/Tip'
@@ -11,11 +11,11 @@ import PlatformLogoImg from '../components/PlatformLogoImg'
 import { useAccounts } from '../accounts/context'
 import { useEnabledPlatformFormLabels } from '../hooks/useEnabledPlatformFormLabels'
 import { ACCOUNT_PLATFORM_LABELS, PLATFORM_META, type Account } from '../accounts/types'
+import type { PublishSuccessInfo } from '../components/PublishSuccessDialog'
 import {
   livePostUrl,
-  newPostId,
-  EMPTY_CONTENT_NOTES,
   contentNotesText,
+  type CreatePostPayload,
   type Post,
   type PostContentNotes,
   type Status
@@ -110,7 +110,13 @@ export default function ContentView({
   initialSection,
   initialStatusFilter,
   initialOpenPostId,
-  onConsumeInitialOpen
+  onConsumeInitialOpen,
+  initialOpenCreate,
+  onConsumeInitialCreate,
+  onCreatePost,
+  onPostCreated,
+  onPostPublished,
+  isActive = true
 }: {
   posts: Post[]
   setPosts: React.Dispatch<React.SetStateAction<Post[]>>
@@ -119,6 +125,13 @@ export default function ContentView({
   /** Open full details for this post (e.g. from Dashboard). */
   initialOpenPostId?: string
   onConsumeInitialOpen?: () => void
+  initialOpenCreate?: boolean
+  onConsumeInitialCreate?: () => void
+  onCreatePost: (payload: CreatePostPayload) => Post
+  /** Navigate to Content and open the new post (from Calendar or after publish). */
+  onPostCreated?: (post: Post) => void
+  onPostPublished?: (post: Post, info: PublishSuccessInfo) => void
+  isActive?: boolean
 }): React.ReactElement {
   const { accounts } = useAccounts()
   const enabledFormPlatformLabels = useEnabledPlatformFormLabels()
@@ -133,10 +146,34 @@ export default function ContentView({
   const [notesModalPostId, setNotesModalPostId] = useState<string | null>(() => initialOpenPostId ?? null)
   const [createOpen, setCreateOpen] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const skipNotesSectionGuardRef = useRef(false)
+  /** Post object until parent `posts` includes the newly created row. */
+  const pendingNotesPostRef = useRef<Post | null>(null)
 
   useLayoutEffect(() => {
-    if (initialOpenPostId) setNotesModalPostId(initialOpenPostId)
-  }, [initialOpenPostId])
+    if (!initialOpenPostId) return
+    const p = posts.find((x) => x.id === initialOpenPostId)
+    if (p) pendingNotesPostRef.current = p
+    skipNotesSectionGuardRef.current = true
+    setNotesModalPostId(initialOpenPostId)
+  }, [initialOpenPostId, posts])
+
+  useEffect(() => {
+    if (!isActive) return
+    if (!initialOpenCreate) return
+    setCreateOpen(true)
+    setEditingId(null)
+    setNotesModalPostId(null)
+    onConsumeInitialCreate?.()
+  }, [initialOpenCreate, isActive, onConsumeInitialCreate])
+
+  useLayoutEffect(() => {
+    if (initialSection) setSection(initialSection)
+  }, [initialSection])
+
+  useLayoutEffect(() => {
+    if (initialStatusFilter) setStatusFilterSelected(new Set([initialStatusFilter]))
+  }, [initialStatusFilter])
 
   const postsInSection = useMemo(
     () => posts.filter((p) => matchesSection(p, section)),
@@ -172,13 +209,24 @@ export default function ContentView({
   }, [])
 
   useEffect(() => {
+    if (skipNotesSectionGuardRef.current) {
+      skipNotesSectionGuardRef.current = false
+      return
+    }
     function postInCurrentSection(id: string): boolean {
+      if (pendingNotesPostRef.current?.id === id) return true
       const p = posts.find((x) => x.id === id)
       return p !== undefined && matchesSection(p, section)
     }
     setEditingId((id) => (id !== null && !postInCurrentSection(id) ? null : id))
     setNotesModalPostId((id) => (id !== null && !postInCurrentSection(id) ? null : id))
   }, [section, posts])
+
+  useEffect(() => {
+    if (isActive) return
+    setConfirmDeleteId(null)
+    setCreateOpen(false)
+  }, [isActive])
 
   function toggleFilter(key: string): void {
     setFilterSelected((prev) => {
@@ -221,7 +269,19 @@ export default function ContentView({
   }
 
   const notesModalPost =
-    notesModalPostId !== null ? posts.find((p) => p.id === notesModalPostId) : undefined
+    notesModalPostId !== null
+      ? posts.find((p) => p.id === notesModalPostId) ?? pendingNotesPostRef.current ?? undefined
+      : undefined
+
+  useEffect(() => {
+    if (!notesModalPostId) {
+      pendingNotesPostRef.current = null
+      return
+    }
+    if (posts.some((p) => p.id === notesModalPostId)) {
+      pendingNotesPostRef.current = null
+    }
+  }, [posts, notesModalPostId])
 
   type FilterRow =
     | { kind: 'platform'; key: string; label: string }
@@ -255,32 +315,27 @@ export default function ContentView({
     setNotesModalPostId(null)
   }
 
-  function createPost(payload: {
-    title: string
-    body: string
-    platforms: string[]
-    accountIds: string[]
-    status: Status
-    scheduledAt: string | null
-    postedUrl: string | null
-  }): void {
-    const nowIso = new Date().toISOString()
-    const post: Post = {
-      id: newPostId(),
-      title: payload.title,
-      body: payload.body,
-      platforms: payload.platforms,
-      accountIds: payload.accountIds,
-      status: payload.status,
-      scheduledAt: payload.status === 'scheduled' ? payload.scheduledAt : null,
-      postedUrl: payload.status === 'posted' ? payload.postedUrl : null,
-      contentNotes: { ...EMPTY_CONTENT_NOTES, caption: payload.body.trim() },
-      createdAt: nowIso,
-      updatedAt: nowIso
-    }
-    setPosts((prev) => [post, ...prev])
+  function revealPostInContent(post: Post): void {
+    pendingNotesPostRef.current = post
+    skipNotesSectionGuardRef.current = true
     setCreateOpen(false)
-    setSection(payload.status === 'draft' ? 'drafts' : 'content')
+    setEditingId(null)
+    const nextSection: ContentSection = post.status === 'draft' ? 'drafts' : 'content'
+    setSection(nextSection)
+    if (post.status === 'scheduled' || post.status === 'posted') {
+      setStatusFilterSelected(new Set([post.status]))
+    } else {
+      setStatusFilterSelected(new Set())
+    }
+    setNotesModalPostId(post.id)
+    playTriplePop()
+    onPostCreated?.(post)
+  }
+
+  function createPost(payload: CreatePostPayload): Post {
+    const post = onCreatePost(payload)
+    revealPostInContent(post)
+    return post
   }
 
   return (
@@ -459,7 +514,7 @@ export default function ContentView({
                 ) : (
                   <>
                     <div
-                      className={`post-body-hit${post.status === 'posted' && post.postedUrl ? ' post-body-hit--with-thumb' : ''}`}
+                      className={`post-body-hit${post.status === 'posted' && livePostUrl(post) ? ' post-body-hit--with-thumb' : ''}`}
                       role="button"
                       tabIndex={0}
                       aria-haspopup="dialog"
@@ -472,8 +527,8 @@ export default function ContentView({
                         }
                       }}
                     >
-                      {post.status === 'posted' && post.postedUrl && (
-                        <PostCardThumb postedUrl={post.postedUrl} />
+                      {post.status === 'posted' && livePostUrl(post) && (
+                        <PostCardThumb post={post} postedUrl={livePostUrl(post)!} />
                       )}
                       <div className="post-body-hit-text">
                         <p className="post-title">{post.title}</p>
@@ -491,7 +546,8 @@ export default function ContentView({
                           rel="noopener noreferrer"
                           className="post-live-link"
                           title={
-                            !post.postedUrl?.trim()
+                            !post.postedUrl?.trim() &&
+                            !Object.values(post.postedLinks ?? {}).some((v) => v.trim().length > 0)
                               ? 'Placeholder — set a real URL in Edit'
                               : undefined
                           }
@@ -577,6 +633,7 @@ export default function ContentView({
       {notesModalPost && (
         <PostNotesFullView
           post={notesModalPost}
+          isVisible={isActive}
           onClose={() => {
             setNotesModalPostId(null)
             onConsumeInitialOpen?.()
@@ -595,6 +652,7 @@ export default function ContentView({
           initialDraft={section === 'drafts'}
           onClose={() => setCreateOpen(false)}
           onCreate={createPost}
+          onPostPublished={onPostPublished}
         />
       )}
 

@@ -1,16 +1,94 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAccounts } from '../accounts/context'
-import { PLATFORM_META } from '../accounts/types'
+import { PLATFORM_META, type Platform } from '../accounts/types'
 import PlatformLogoImg from '../components/PlatformLogoImg'
+
+const SOCIAL_PARTITION = 'persist:rsp-social'
+const PLATFORM_ALLOWED_HOSTS: Record<Platform, string[]> = {
+  tiktok: ['tiktok.com'],
+  instagram: ['instagram.com'],
+  threads: ['threads.com', 'threads.net'],
+  youtube: ['youtube.com', 'youtu.be', 'google.com', 'googlevideo.com', 'gstatic.com'],
+  linkedin: ['linkedin.com'],
+  x: ['x.com', 'twitter.com']
+}
+const COMMON_AUTH_HOSTS = ['accounts.google.com', 'appleid.apple.com', 'login.live.com']
+const AUTH_PATH_HINTS = ['/login', '/signin', '/accounts/login', '/oauth', '/oauth2', '/authorize', '/auth']
+const PREVIEW_PLATFORM_ORDER: Platform[] = [
+  'tiktok',
+  'instagram',
+  'youtube',
+  'x',
+  'threads',
+  'linkedin'
+]
+
+function isAllowedHost(platform: Platform, hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  return PLATFORM_ALLOWED_HOSTS[platform].some((base) => host === base || host.endsWith(`.${base}`))
+}
+
+function safeAccountUrl(platform: Platform, rawUrl: string): string {
+  const fallback = PLATFORM_META[platform].defaultUrl
+  try {
+    const input = rawUrl.trim()
+    if (!input) return fallback
+    const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(input) ? input : `https://${input}`
+    const parsed = new URL(withScheme)
+    if (parsed.protocol !== 'https:') return fallback
+    if (!isAllowedHost(platform, parsed.hostname)) return fallback
+    return parsed.toString()
+  } catch {
+    return fallback
+  }
+}
+
+function isAuthFlowUrl(platform: Platform, rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl)
+    const host = url.hostname.toLowerCase()
+    const path = url.pathname.toLowerCase()
+    const search = url.search.toLowerCase()
+    if (COMMON_AUTH_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))) return true
+    if (AUTH_PATH_HINTS.some((hint) => path.includes(hint))) return true
+    if (search.includes('oauth') || search.includes('authorize') || search.includes('login')) return true
+
+    if (platform === 'youtube') return host.endsWith('google.com') && (path.includes('signin') || path.includes('servicelogin'))
+    if (platform === 'instagram' || platform === 'threads') return host.endsWith('instagram.com') && path.includes('/accounts/login')
+    if (platform === 'linkedin') return host.endsWith('linkedin.com') && path.includes('/login')
+    if (platform === 'tiktok') return host.endsWith('tiktok.com') && path.includes('/login')
+    if (platform === 'x') return (host.endsWith('x.com') || host.endsWith('twitter.com')) && path.includes('/i/flow/login')
+    return false
+  } catch {
+    return false
+  }
+}
+
+function allowsInAppAuth(platform: Platform): boolean {
+  return platform !== 'youtube'
+}
 
 export default function AccountsView({ previewEnabled = true }: { previewEnabled?: boolean }): React.ReactElement {
   const { accounts } = useAccounts()
+  const platformOrder = useMemo(
+    () => new Map<Platform, number>(PREVIEW_PLATFORM_ORDER.map((p, idx) => [p, idx])),
+    []
+  )
   const safeAccounts = useMemo(
-    () => accounts.filter((a) => Boolean(PLATFORM_META[a.platform])),
-    [accounts]
+    () =>
+      accounts
+        .filter((a) => Boolean(PLATFORM_META[a.platform]))
+        .sort((a, b) => {
+          const pa = platformOrder.get(a.platform) ?? 999
+          const pb = platformOrder.get(b.platform) ?? 999
+          if (pa !== pb) return pa - pb
+          return a.name.localeCompare(b.name)
+        }),
+    [accounts, platformOrder]
   )
   const [activeId, setActiveId] = useState<string | null>(null)
   const [loadingIds, setLoadingIds] = useState<Set<string>>(() => new Set())
+  const [browserLoginRequiredIds, setBrowserLoginRequiredIds] = useState<Set<string>>(() => new Set())
   const webviewRefs = useRef<Map<string, HTMLElement | null>>(new Map())
   // Keep cleanup functions per id so we can detach when a webview unmounts
   const cleanupRefs = useRef<Map<string, () => void>>(new Map())
@@ -61,6 +139,10 @@ export default function AccountsView({ previewEnabled = true }: { previewEnabled
       }
       return next
     })
+    setBrowserLoginRequiredIds((prev) => {
+      const next = new Set([...prev].filter((id) => validIds.has(id)))
+      return next.size === prev.size ? prev : next
+    })
   }, [safeAccounts])
 
   // Attach load listeners via ref callback — fires as soon as the DOM node exists
@@ -75,19 +157,80 @@ export default function AccountsView({ previewEnabled = true }: { previewEnabled
     }
 
     const wv = el as Electron.WebviewTag
+    function preferredProfileUrl(): string {
+      const acc = safeAccounts.find((x) => x.id === id)
+      if (!acc) return 'about:blank'
+      return safeAccountUrl(acc.platform, acc.url || PLATFORM_META[acc.platform].defaultUrl)
+    }
 
     function onStart(): void { setLoadingIds((prev) => new Set(prev).add(id)) }
     function onStop(): void {
       setLoadingIds((prev) => { const next = new Set(prev); next.delete(id); return next })
     }
+    function onWillNavigate(e: Event): void {
+      const acc = safeAccounts.find((x) => x.id === id)
+      if (!acc) return
+      const event = e as Event & { url?: string; preventDefault?: () => void }
+      const requested = typeof event.url === 'string' ? event.url : ''
+      if (!allowsInAppAuth(acc.platform) && requested && isAuthFlowUrl(acc.platform, requested)) {
+        event.preventDefault?.()
+        setBrowserLoginRequiredIds((prev) => new Set(prev).add(id))
+        void wv.loadURL(preferredProfileUrl())
+        return
+      }
+      const safe = safeAccountUrl(acc.platform, requested)
+      if (requested && requested !== safe) {
+        event.preventDefault?.()
+        void wv.loadURL(safe)
+      } else {
+        setBrowserLoginRequiredIds((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+      }
+    }
+    function onDidNavigateLike(e: Event): void {
+      const acc = safeAccounts.find((x) => x.id === id)
+      if (!acc) return
+      const event = e as Event & { url?: string }
+      const url = typeof event.url === 'string' ? event.url : ''
+      if (!url) return
+      if (!allowsInAppAuth(acc.platform) && isAuthFlowUrl(acc.platform, url)) {
+        setBrowserLoginRequiredIds((prev) => new Set(prev).add(id))
+        void wv.loadURL(preferredProfileUrl())
+      }
+    }
+    function onNewWindow(e: Event): void {
+      const event = e as Event & { url?: string; preventDefault?: () => void }
+      const url = typeof event.url === 'string' ? event.url : ''
+      if (!url) return
+      const platform = safeAccounts.find((x) => x.id === id)?.platform
+      if (platform && !allowsInAppAuth(platform)) {
+        event.preventDefault?.()
+        setBrowserLoginRequiredIds((prev) => new Set(prev).add(id))
+        void wv.loadURL(preferredProfileUrl())
+      }
+    }
 
     wv.addEventListener('did-start-loading', onStart)
     wv.addEventListener('did-stop-loading', onStop)
+    wv.addEventListener('did-navigate', onDidNavigateLike as EventListener)
+    wv.addEventListener('did-navigate-in-page', onDidNavigateLike as EventListener)
+    wv.addEventListener('did-redirect-navigation', onDidNavigateLike as EventListener)
+    wv.addEventListener('will-navigate', onWillNavigate as EventListener)
+    wv.addEventListener('new-window', onNewWindow as EventListener)
     cleanupRefs.current.set(id, () => {
       wv.removeEventListener('did-start-loading', onStart)
       wv.removeEventListener('did-stop-loading', onStop)
+      wv.removeEventListener('did-navigate', onDidNavigateLike as EventListener)
+      wv.removeEventListener('did-navigate-in-page', onDidNavigateLike as EventListener)
+      wv.removeEventListener('did-redirect-navigation', onDidNavigateLike as EventListener)
+      wv.removeEventListener('will-navigate', onWillNavigate as EventListener)
+      wv.removeEventListener('new-window', onNewWindow as EventListener)
     })
-  }, [])
+  }, [safeAccounts])
 
   const getWebviewRef = useCallback((id: string) => {
     const existing = refCallbackById.current.get(id)
@@ -103,13 +246,31 @@ export default function AccountsView({ previewEnabled = true }: { previewEnabled
 
   const currentId = activeAccount?.id ?? null
   const isLoading = currentId ? loadingIds.has(currentId) : false
+  const browserLoginRequired = currentId ? browserLoginRequiredIds.has(currentId) : false
 
   function openActiveInBrowser(): void {
     if (!activeAccount) return
-    const url = (activeAccount.url || PLATFORM_META[activeAccount.platform].defaultUrl).trim()
+    const url = safeAccountUrl(activeAccount.platform, activeAccount.url || '')
     if (!url) return
     void window.api.openExternalUrl(url)
   }
+
+  function continueLoginInBrowser(): void {
+    if (!currentId || !activeAccount) return
+    const currentUrl = wv(currentId)?.getURL() ?? ''
+    const url =
+      currentUrl.trim() ||
+      safeAccountUrl(activeAccount.platform, activeAccount.url || PLATFORM_META[activeAccount.platform].defaultUrl)
+    if (!url) return
+    void window.api.openExternalUrl(url)
+  }
+
+  useEffect(() => {
+    return window.api.onAccountSessionsCleared(() => {
+      if (!currentId) return
+      wv(currentId)?.reloadIgnoringCache()
+    })
+  }, [currentId])
 
   if (safeAccounts.length === 0) {
     return (
@@ -165,21 +326,23 @@ export default function AccountsView({ previewEnabled = true }: { previewEnabled
     <div className="accounts-view">
       {/* ── Tab bar ── */}
       <div className="accounts-tabs">
-        {safeAccounts.map((acc) => {
-          const meta = PLATFORM_META[acc.platform]
-          return (
-            <button
-              key={acc.id}
-              type="button"
-              className={`accounts-tab${currentId === acc.id ? ' accounts-tab--active' : ''}`}
-              onClick={() => setActiveId(acc.id)}
-              title={`${meta.label}: ${acc.name}`}
-            >
-              <PlatformLogoImg platform={acc.platform} size={16} />
-              <span className="accounts-tab-name">{acc.name}</span>
-            </button>
-          )
-        })}
+        <div className="accounts-tab-strip" role="tablist" aria-label="Account previews">
+          {safeAccounts.map((acc) => {
+            const meta = PLATFORM_META[acc.platform]
+            return (
+              <button
+                key={acc.id}
+                type="button"
+                className={`accounts-tab${currentId === acc.id ? ' accounts-tab--active' : ''}`}
+                onClick={() => setActiveId(acc.id)}
+                title={`${meta.label}: ${acc.name}`}
+              >
+                <PlatformLogoImg platform={acc.platform} size={16} />
+                <span className="accounts-tab-name">{acc.name}</span>
+              </button>
+            )
+          })}
+        </div>
 
         {/* Nav controls on the right */}
         <div className="accounts-nav">
@@ -231,14 +394,23 @@ export default function AccountsView({ previewEnabled = true }: { previewEnabled
         </div>
       )}
 
+      {browserLoginRequired && (
+        <div className="card" style={{ margin: '10px 0', padding: '12px 14px' }}>
+          <p className="muted small" style={{ margin: 0 }}>
+            Sign-in is disabled in embedded account tabs for this platform. This tab stays on the profile page.
+          </p>
+        </div>
+      )}
+
       {/* ── WebViews — one per account ── */}
       <div className="accounts-webview-wrap">
         {safeAccounts.map((acc) => (
           <webview
             key={acc.id}
             ref={getWebviewRef(acc.id)}
-            src={acc.url || PLATFORM_META[acc.platform].defaultUrl}
-            {...({ allowpopups: 'true' } as Record<string, string>)}
+            src={safeAccountUrl(acc.platform, acc.url || '')}
+            partition={SOCIAL_PARTITION}
+            webpreferences="contextIsolation=yes,nodeIntegration=no,sandbox=yes,javascript=yes"
             useragent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             className={`accounts-webview${currentId === acc.id ? ' accounts-webview--active' : ''}`}
           />

@@ -12,13 +12,15 @@ export default function PostNotesFullView({
   onClose,
   onNotesChange,
   onPostChange,
-  onDelete
+  onDelete,
+  isVisible = true
 }: {
   post: Post
   onClose: () => void
   onNotesChange: (notes: PostContentNotes) => void
   onPostChange: (patch: Partial<Post>) => void
   onDelete: () => void
+  isVisible?: boolean
 }): React.ReactElement {
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -41,6 +43,8 @@ export default function PostNotesFullView({
       role="dialog"
       aria-modal="true"
       aria-labelledby="post-notes-full-title"
+      aria-hidden={!isVisible}
+      style={{ display: isVisible ? 'flex' : 'none' }}
     >
       <header className={`post-notes-full-toolbar${editing ? ' post-notes-full-toolbar--editing' : ''}`}>
         <button type="button" className="ghost post-notes-full-back" onClick={onClose}>
@@ -119,7 +123,32 @@ export default function PostNotesFullView({
 
               {post.status === 'posted' && livePostUrl(post) && (
                 <div className="post-notes-full-live">
-                  <PostLivePreview url={livePostUrl(post)!} />
+                  <PostLivePreview url={livePostUrl(post)!} post={post} />
+                </div>
+              )}
+
+              {post.status === 'posted' && (
+                <div className="post-notes-full-live-links">
+                  <p className="muted small post-notes-full-live-links-title">Live links by platform</p>
+                  <div className="post-notes-full-live-links-list">
+                    {(post.platforms.length > 0 ? post.platforms : ['Post']).map((platformLabel) => {
+                      const link = post.postedLinks[platformLabel]?.trim()
+                      const fallback = !link && platformLabel === (post.platforms[0] ?? 'Post') ? post.postedUrl?.trim() : ''
+                      const href = link || fallback || ''
+                      return (
+                        <div key={platformLabel} className="post-notes-full-live-links-item">
+                          <strong className="post-notes-full-live-links-platform">{platformLabel}</strong>
+                          {href ? (
+                            <a href={href} target="_blank" rel="noreferrer" className="small">
+                              {href}
+                            </a>
+                          ) : (
+                            <span className="muted small">No link added</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
 

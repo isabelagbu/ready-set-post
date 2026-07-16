@@ -1,37 +1,41 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import PostCreateForm from './PostCreateForm'
-import { type Status } from '../posts/types'
+import type { PublishSuccessInfo } from './PublishSuccessDialog'
+import { type CreatePostPayload, type Post } from '../posts/types'
 
 export default function PostCreateModal({
   initialDraft,
   initialDate,
   onClose,
-  onCreate
+  onCreate,
+  onPostPublished
 }: {
   initialDraft: boolean
   initialDate?: string
   onClose: () => void
-  onCreate: (payload: {
-    title: string
-    body: string
-    platforms: string[]
-    accountIds: string[]
-    status: Status
-    scheduledAt: string | null
-    postedUrl: string | null
-  }) => void
+  onCreate: (payload: CreatePostPayload) => Post
+  onPostPublished?: (post: Post, info: PublishSuccessInfo) => void
 }): React.ReactElement {
+  const [publishing, setPublishing] = useState(false)
+
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
+      if (publishing) return
       if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, publishing])
 
   return createPortal(
-    <div className="post-create-modal-backdrop" role="presentation" onClick={onClose}>
+    <div
+      className="post-create-modal-backdrop"
+      role="presentation"
+      onClick={() => {
+        if (!publishing) onClose()
+      }}
+    >
       <div
         className="post-create-modal-card"
         role="dialog"
@@ -48,7 +52,12 @@ export default function PostCreateModal({
               Draft, schedule, or log something already published — add platforms, then save.
             </p>
           </div>
-          <button type="button" className="ghost post-create-modal-close" onClick={onClose}>
+          <button
+            type="button"
+            className="ghost post-create-modal-close"
+            onClick={onClose}
+            disabled={publishing}
+          >
             Close
           </button>
         </header>
@@ -58,6 +67,8 @@ export default function PostCreateModal({
           initialDate={initialDate}
           onCancel={onClose}
           onCreate={onCreate}
+          onPostPublished={onPostPublished}
+          onPublishingChange={setPublishing}
           showTitle={false}
           plain
         />

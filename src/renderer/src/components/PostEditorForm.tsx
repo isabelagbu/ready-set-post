@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useAccounts } from '../accounts/context'
 import { ACCOUNT_PLATFORM_LABELS, PLATFORM_META } from '../accounts/types'
 import { scheduledAtFromParts, toDateInputValue, toTimeInputValue } from '../posts/datetime'
-import { PLATFORM_OPTIONS, type Post, type Status } from '../posts/types'
+import { PLATFORM_OPTIONS, type Post, type PostedLinks, type Status } from '../posts/types'
 import { useEnabledPlatformFormLabels } from '../hooks/useEnabledPlatformFormLabels'
 import PlatformLogoImg from './PlatformLogoImg'
 import { playTriplePop } from '../utils/sound'
@@ -46,7 +46,18 @@ export default function PostEditorForm({
   )
   const [noTime, setNoTime] = useState(() => !post.scheduledAt)
   const [status, setStatus] = useState<Status>(post.status)
-  const [postedUrl, setPostedUrl] = useState(post.postedUrl ?? '')
+  const [postedLinksDraft, setPostedLinksDraft] = useState<PostedLinks>(() => ({ ...post.postedLinks }))
+  const selectedPlatformLabels = useMemo(() => {
+    const accountDerivedPlatforms = [
+      ...new Set(
+        selectedAccountIds
+          .map((id) => accounts.find((a) => a.id === id)?.platform)
+          .filter(Boolean)
+          .map((p) => PLATFORM_META[p!].label)
+      )
+    ]
+    return [...new Set([...selectedPlatforms, ...accountDerivedPlatforms])]
+  }, [selectedPlatforms, selectedAccountIds, accounts])
 
   function togglePlatform(p: string): void {
     setSelectedPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]))
@@ -61,15 +72,7 @@ export default function PostEditorForm({
     if (!trimmedTitle) return
     if (status === 'scheduled' && !dateStr.trim()) return
 
-    const accountDerivedPlatforms = [
-      ...new Set(
-        selectedAccountIds
-          .map((id) => accounts.find((a) => a.id === id)?.platform)
-          .filter(Boolean)
-          .map((p) => PLATFORM_META[p!].label)
-      )
-    ]
-    const allPlatforms = [...new Set([...selectedPlatforms, ...accountDerivedPlatforms])]
+    const allPlatforms = selectedPlatformLabels
 
     if (status === 'draft') {
       onSave({
@@ -80,15 +83,24 @@ export default function PostEditorForm({
         accountIds: selectedAccountIds,
         scheduledAt: null,
         status: 'draft',
-        postedUrl: null
+        postedUrl: null,
+        postedLinks: {}
       })
       return
     }
     const scheduledAt =
       !dateStr.trim() ? null : scheduledAtFromParts(dateStr, noTime ? '' : timeStr)
-    if (status === 'scheduled' && !scheduledAt) return
+    if (!scheduledAt) return
     const nextStatus = status
     if (nextStatus === 'posted') playTriplePop()
+    const links: PostedLinks = {}
+    if (nextStatus === 'posted') {
+      for (const platform of allPlatforms) {
+        const v = postedLinksDraft[platform]?.trim()
+        if (v) links[platform] = v
+      }
+    }
+    const first = allPlatforms.map((p) => links[p]).find((x) => !!x) ?? null
     onSave({
       title: trimmedTitle,
       body: body.trim() || post.body,
@@ -97,7 +109,8 @@ export default function PostEditorForm({
       accountIds: selectedAccountIds,
       scheduledAt,
       status: nextStatus,
-      postedUrl: nextStatus === 'posted' ? (postedUrl.trim() || null) : null
+      postedUrl: nextStatus === 'posted' ? first : null,
+      postedLinks: nextStatus === 'posted' ? links : {}
     })
   }
 
@@ -145,8 +158,6 @@ export default function PostEditorForm({
         {platformRowLabels.map((p) => {
           const platformKey = ACCOUNT_PLATFORM_LABELS[p]
           const grpAccounts = platformKey ? accounts.filter((a) => a.platform === platformKey) : []
-          const meta = platformKey ? PLATFORM_META[platformKey] : null
-
           return (
             <div key={p} className="platform-picker-row">
               <span className="platform-picker-row-label">
@@ -163,20 +174,21 @@ export default function PostEditorForm({
                         onChange={() => toggleAccount(acc.id)}
                         aria-label={`${p}: ${acc.name}`}
                       />
-                      <span className="chip-account-dot" style={{ background: meta!.color }} aria-hidden />
                       {acc.name}
                     </label>
                   ))}
                 </div>
               ) : (
-                <label className="chip chip--platform-solo">
-                  <input
-                    type="checkbox"
-                    checked={selectedPlatforms.includes(p)}
-                    onChange={() => togglePlatform(p)}
-                    aria-label={`Include ${p}`}
-                  />
-                </label>
+                <div className="platform-picker-row-accounts">
+                  <label className="chip chip--platform-solo">
+                    <input
+                      type="checkbox"
+                      checked={selectedPlatforms.includes(p)}
+                      onChange={() => togglePlatform(p)}
+                      aria-label={`Include ${p}`}
+                    />
+                  </label>
+                </div>
               )}
             </div>
           )
@@ -203,17 +215,24 @@ export default function PostEditorForm({
         </select>
       </label>
       {status !== 'draft' && status === 'posted' && (
-        <label>
-          <span className="label">Live post URL</span>
-          <input
-            type="url"
-            inputMode="url"
-            placeholder="https://…"
-            value={postedUrl}
-            onChange={(e) => setPostedUrl(e.target.value)}
-          />
-          <span className="muted small">Optional. If empty, a placeholder link is used until you add one.</span>
-        </label>
+        <div className="platform-picker-stack" style={{ marginTop: 4 }}>
+          <span className="label">Live links by platform (optional)</span>
+          {selectedPlatformLabels.map((platformLabel) => (
+            <label key={platformLabel}>
+              <span className="label">{platformLabel}</span>
+              <input
+                type="url"
+                inputMode="url"
+                placeholder="https://…"
+                value={postedLinksDraft[platformLabel] ?? ''}
+                onChange={(e) =>
+                  setPostedLinksDraft((prev) => ({ ...prev, [platformLabel]: e.target.value }))
+                }
+              />
+            </label>
+          ))}
+          <span className="muted small">Add one link per selected platform.</span>
+        </div>
       )}
       <div className="row actions">
         <button type="button" className="primary" onClick={save}>

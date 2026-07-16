@@ -7,7 +7,7 @@ import { PLATFORM_META } from '../accounts/types'
 import type { Platform } from '../accounts/types'
 import type { NavId } from '../nav'
 import { pad2 } from '../posts/datetime'
-import type { Post } from '../posts/types'
+import { livePostUrl, type Post } from '../posts/types'
 import { WORKSPACE_SYNCED_EVENT } from '../workspace/sync'
 
 function fmt(iso: string): string {
@@ -102,16 +102,17 @@ function PostThumbnailCard({ post, onOpen }: { post: Post; onOpen: (id: string) 
   const platformLabel = primaryPlatform ? PLATFORM_META[primaryPlatform]?.label : null
 
   useEffect(() => {
-    if (!post.postedUrl) return
-    const yt = youTubeThumbnail(post.postedUrl)
+    const liveUrl = livePostUrl(post)
+    if (!liveUrl) return
+    const yt = youTubeThumbnail(liveUrl)
     if (yt) { setThumb(yt); return }
-    if (/tiktok\.com/.test(post.postedUrl)) {
-      fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(post.postedUrl)}`)
+    if (/tiktok\.com/.test(liveUrl)) {
+      fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(liveUrl)}`)
         .then((r) => r.json())
         .then((d) => { if (d.thumbnail_url) setThumb(d.thumbnail_url) })
         .catch(() => {})
     }
-  }, [post.postedUrl])
+  }, [post])
 
   const showImage = thumb && !thumbErr
 
@@ -165,6 +166,7 @@ function PostThumbnailCard({ post, onOpen }: { post: Post; onOpen: (id: string) 
 export default function DashboardView({
   posts,
   onNavigate,
+  onCreatePost,
   onOpenPostDetail
 }: {
   posts: Post[]
@@ -174,6 +176,7 @@ export default function DashboardView({
     statusFilter?: 'draft' | 'scheduled' | 'posted',
     calendarDateKey?: string
   ) => void
+  onCreatePost: () => void
   onOpenPostDetail: (postId: string) => void
 }): React.ReactElement {
   const now = Date.now()
@@ -337,8 +340,8 @@ export default function DashboardView({
           )}
           <p className="dash-greeting-date muted small">{todayLabel()}</p>
         </div>
-        <button type="button" className="primary" onClick={() => onNavigate('content')}>
-          + New post
+        <button type="button" className="primary" onClick={onCreatePost}>
+          + Create post
         </button>
       </div>
 
